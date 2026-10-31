@@ -1,7 +1,7 @@
 import mqtt, { MqttClient } from "mqtt";
 import { ulid } from "ulidx";
 import { SignalAdapter } from "../crypto/SignalAdapter";
-import { ChatItem, MessageItem } from "../storage/db";
+import { ChatItem, MessageItem, PollData, LocationData, ContactData, EventData } from "../storage/db";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
 
@@ -11,6 +11,7 @@ export class MqttTransport {
   private userId: string;
   private deviceId: number;
   private typingTimeouts: Map<string, any> = new Map();
+  private distributedSenderKeys: Set<string> = new Set(); // groupIds where own sender key was distributed
 
   constructor(userId: string, deviceId: number = 1) {
     this.userId = userId;
@@ -31,7 +32,7 @@ export class MqttTransport {
     const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
     const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
     const port = typeof window !== "undefined" && window.location.port ? window.location.port : "3001";
-    
+
     // In browser container behind Nginx, /mqtt is forwarded to mosquitto:9001
     // In standalone vite dev (e.g. port 5174), connect directly to port 9001
     const brokerUrl = port === "5174"
@@ -56,15 +57,12 @@ export class MqttTransport {
     });
 
     this.client.on("connect", () => {
-      console.log("[MQTT] Connected to broker successfully");
-
-      // Subscribe to user inbox & acks
-      this.client?.subscribe(`u/${this.userId}/${this.deviceId}/#`, { qos: 1 });
-      // Subscribe to global presence
-      this.client?.subscribe("p/#", { qos: 1 });
-
-      // Publish online presence
+      console.info("[MQTT] Connected to Mosquitto broker as", clientId);
       this.publishPresence(true);
+
+      // Subscribe to user mailbox and presence channels
+      this.client?.subscribe(`u/${this.userId}/#`, { qos: 1 });
+      this.client?.subscribe("p/#", { qos: 1 });
     });
 
     this.client.on("message", (topic, payload) => {
@@ -73,6 +71,10 @@ export class MqttTransport {
 
     this.client.on("error", (err) => {
       console.warn("[MQTT] Connection error:", err.message);
+    });
+
+    this.client.on("close", () => {
+      console.info("[MQTT] Connection closed");
     });
   }
 
@@ -112,8 +114,8 @@ export class MqttTransport {
 
       // 1. Server Acknowledgment
       if (topic === `u/${this.userId}/${this.deviceId}/ack`) {
-        if (data.status === "server_ack" && data.envelope_id) {
-          useChatStore.getState().updateMessageStatusByEnvelopeId(data.envelope_id, "sent");
+        if (data.status === "server_ack" && data.id) {
+          useChatStore.getState().updateMessageStatusByEnvelopeId(data.id, "sent");
         }
         return;
       }
@@ -148,7 +150,27 @@ export class MqttTransport {
       if (topic === `u/${this.userId}/${this.deviceId}/inbox`) {
         const envelope = data;
 
-        // RECEIPT envelope
+        // A. SENDER_KEY_DISTRIBUTION (type 5)
+        if (envelope.type === 5 && this.signalAdapter) {
+          try {
+            const encryptedPayload = JSON.parse(atob(envelope.ciphertext));
+            const decryptedJson = await this.signalAdapter.decrypt(
+              envelope.sender_user,
+              envelope.sender_device || 1,
+              encryptedPayload
+            );
+            const parsed = JSON.parse(decryptedJson);
+            if (parsed.type === "sender_key_distribution" && parsed.data) {
+              await this.signalAdapter.processSenderKeyDistribution(parsed.data);
+              console.info(`[MQTT] Processed SenderKeyDistribution for group ${parsed.data.groupId} from ${envelope.sender_user}`);
+            }
+          } catch (err) {
+            console.warn("[MQTT] Failed to process sender key distribution:", err);
+          }
+          return;
+        }
+
+        // B. RECEIPT envelope (type 2)
         if (envelope.type === 2) {
           const status = envelope.receipt_status === "read" ? "read" : "delivered";
           if (envelope.envelope_id) {
@@ -164,27 +186,41 @@ export class MqttTransport {
           return;
         }
 
-        // MESSAGE envelope
+        // C. MESSAGE envelope (type 1)
         if (envelope.type === 1 && this.signalAdapter) {
-          const encryptedPayload = JSON.parse(atob(envelope.ciphertext));
-          const decryptedJson = await this.signalAdapter.decrypt(
-            envelope.sender_user,
-            envelope.sender_device || 1,
-            encryptedPayload
-          );
-          const innerMsg = JSON.parse(decryptedJson);
-
           const senderId = envelope.sender_user;
+          const isGroup = !!envelope.group_id;
+          const chatId = isGroup ? envelope.group_id : senderId;
           const store = useChatStore.getState();
+
+          let decryptedJson: string;
+          if (isGroup) {
+            // Decrypt with Signal Sender Key
+            decryptedJson = await this.signalAdapter.decryptGroupMessage(
+              chatId,
+              senderId,
+              envelope.ciphertext
+            );
+          } else {
+            // Decrypt pairwise Double Ratchet
+            const encryptedPayload = JSON.parse(atob(envelope.ciphertext));
+            decryptedJson = await this.signalAdapter.decrypt(
+              senderId,
+              envelope.sender_device || 1,
+              encryptedPayload
+            );
+          }
+
+          const innerMsg = JSON.parse(decryptedJson);
 
           // Handle reaction
           if (innerMsg.reaction) {
             const { msgId, emoji } = innerMsg.reaction;
-            const chatMsgs = store.messages[senderId] || [];
+            const chatMsgs = store.messages[chatId] || [];
             const target = chatMsgs.find((m) => m.id === msgId);
             if (target) {
               const reactions = { ...(target.reactions || {}), [senderId]: emoji };
-              await store.updateMessage(senderId, msgId, { reactions });
+              await store.updateMessage(chatId, msgId, { reactions });
             }
             return;
           }
@@ -192,7 +228,7 @@ export class MqttTransport {
           // Handle message edit
           if (innerMsg.edit) {
             const { msgId, newText } = innerMsg.edit;
-            await store.updateMessage(senderId, msgId, {
+            await store.updateMessage(chatId, msgId, {
               text: newText,
               isEdited: true,
               editedAt: Date.now(),
@@ -203,52 +239,87 @@ export class MqttTransport {
           // Handle message delete for everyone
           if (innerMsg.delete) {
             const { msgId } = innerMsg.delete;
-            await store.updateMessage(senderId, msgId, {
+            await store.updateMessage(chatId, msgId, {
               text: "This message was deleted",
               isDeleted: true,
             });
             return;
           }
 
-          // Standard incoming message
+          // Handle poll vote update
+          if (innerMsg.pollVote) {
+            const { pollId, optionId, voterId } = innerMsg.pollVote;
+            await store.votePoll(chatId, pollId, optionId, voterId || senderId);
+            return;
+          }
+
+          // Handle pin update
+          if (innerMsg.pin) {
+            const { msgId, isPinned } = innerMsg.pin;
+            await store.updateMessage(chatId, msgId, { isPinned });
+            return;
+          }
+
+          // Standard / Rich incoming message
           const newMsg: MessageItem = {
             id: innerMsg.id || ulid(),
             envelopeId: envelope.id,
-            chatId: senderId,
+            chatId,
+            groupId: envelope.group_id,
             senderId,
             senderDeviceId: envelope.sender_device || 1,
             recipientId: this.userId,
             recipientDeviceId: this.deviceId,
-            text: innerMsg.text,
+            text: innerMsg.text || "",
             timestamp: innerMsg.timestamp || Date.now(),
             status: "delivered",
             replyTo: innerMsg.replyTo,
+            messageType: innerMsg.messageType || "text",
+            poll: innerMsg.poll,
+            location: innerMsg.location,
+            contact: innerMsg.contact,
+            event: innerMsg.event,
+            mentions: innerMsg.mentions,
+            isPinned: innerMsg.isPinned,
+            viewOnce: innerMsg.viewOnce,
+            viewed: false,
+            forwardCount: innerMsg.forwardCount || 0,
+            disappearingAfter: innerMsg.disappearingAfter,
           };
 
           await store.addMessage(newMsg);
 
           // Update or create chat in left sidebar
-          const existingChat = store.chats.find((c) => c.id === senderId);
-          const isActive = store.activeChatId === senderId;
+          const existingChat = store.chats.find((c) => c.id === chatId);
+          const isActive = store.activeChatId === chatId;
+
+          let displaySummary = newMsg.text;
+          if (newMsg.messageType === "poll") displaySummary = `📊 Poll: ${newMsg.poll?.question}`;
+          if (newMsg.messageType === "location") displaySummary = "📍 Location";
+          if (newMsg.messageType === "contact") displaySummary = `👤 Contact: ${newMsg.contact?.name}`;
+          if (newMsg.messageType === "event") displaySummary = `📅 Event: ${newMsg.event?.title}`;
+          if (newMsg.viewOnce) displaySummary = "🔒 View-once message";
 
           const updatedChat: ChatItem = {
-            id: senderId,
-            peerUserId: senderId,
-            peerDisplayName: existingChat?.peerDisplayName || innerMsg.senderDisplayName || senderId,
+            id: chatId,
+            peerUserId: isGroup ? (existingChat?.peerUserId || chatId) : senderId,
+            peerDisplayName: existingChat?.peerDisplayName || innerMsg.groupName || innerMsg.senderDisplayName || senderId,
             peerPhoneNumber: existingChat?.peerPhoneNumber || innerMsg.senderPhone || "",
             peerAvatarUrl: existingChat?.peerAvatarUrl,
-            lastMessageText: innerMsg.text,
+            lastMessageText: displaySummary,
             lastMessageTimestamp: newMsg.timestamp,
             unreadCount: isActive ? 0 : (existingChat?.unreadCount || 0) + 1,
+            isGroup,
+            disappearingMode: innerMsg.disappearingAfter || existingChat?.disappearingMode,
           };
           await store.addOrUpdateChat(updatedChat);
 
-          // Send delivered receipt back
-          this.sendReceipt(senderId, envelope.sender_device || 1, envelope.id, newMsg.id, "delivered");
-
-          // If active chat is open, immediately send read receipt too
-          if (isActive) {
-            this.sendReceipt(senderId, envelope.sender_device || 1, envelope.id, newMsg.id, "read");
+          // For 1:1, send delivered receipt back
+          if (!isGroup) {
+            this.sendReceipt(senderId, envelope.sender_device || 1, envelope.id, newMsg.id, "delivered");
+            if (isActive) {
+              this.sendReceipt(senderId, envelope.sender_device || 1, envelope.id, newMsg.id, "read");
+            }
           }
         }
       }
@@ -287,10 +358,20 @@ export class MqttTransport {
     );
   }
 
+  // 1:1 Message Sender
   async sendMessage(
     recipient: { id: string; phoneNumber: string; displayName?: string },
     text: string,
-    replyTo?: { id: string; text: string; senderId: string }
+    richData?: {
+      messageType?: MessageItem["messageType"];
+      poll?: PollData;
+      location?: LocationData;
+      contact?: ContactData;
+      event?: EventData;
+      viewOnce?: boolean;
+      disappearingAfter?: number;
+      replyTo?: { id: string; text: string; senderId: string };
+    }
   ): Promise<MessageItem> {
     if (!this.signalAdapter) {
       throw new Error("SignalAdapter not initialized");
@@ -303,7 +384,14 @@ export class MqttTransport {
     const innerPayload = {
       id: msgId,
       text,
-      replyTo,
+      replyTo: richData?.replyTo,
+      messageType: richData?.messageType || "text",
+      poll: richData?.poll,
+      location: richData?.location,
+      contact: richData?.contact,
+      event: richData?.event,
+      viewOnce: richData?.viewOnce,
+      disappearingAfter: richData?.disappearingAfter,
       timestamp: now,
       senderPhone: useAuthStore.getState().user?.phone_number,
       senderDisplayName: useAuthStore.getState().user?.display_name,
@@ -335,11 +423,26 @@ export class MqttTransport {
       text,
       timestamp: now,
       status: "pending",
-      replyTo,
+      replyTo: richData?.replyTo,
+      messageType: richData?.messageType || "text",
+      poll: richData?.poll,
+      location: richData?.location,
+      contact: richData?.contact,
+      event: richData?.event,
+      viewOnce: richData?.viewOnce,
+      viewed: false,
+      disappearingAfter: richData?.disappearingAfter,
     };
 
     const store = useChatStore.getState();
     await store.addMessage(newMsg);
+
+    let displaySummary = text;
+    if (newMsg.messageType === "poll") displaySummary = `📊 Poll: ${newMsg.poll?.question}`;
+    if (newMsg.messageType === "location") displaySummary = "📍 Location";
+    if (newMsg.messageType === "contact") displaySummary = `👤 Contact: ${newMsg.contact?.name}`;
+    if (newMsg.messageType === "event") displaySummary = `📅 Event: ${newMsg.event?.title}`;
+    if (newMsg.viewOnce) displaySummary = "🔒 View-once message";
 
     const existingChat = store.chats.find((c) => c.id === recipient.id);
     const updatedChat: ChatItem = {
@@ -347,9 +450,10 @@ export class MqttTransport {
       peerUserId: recipient.id,
       peerDisplayName: recipient.displayName || existingChat?.peerDisplayName,
       peerPhoneNumber: recipient.phoneNumber || existingChat?.peerPhoneNumber || "",
-      lastMessageText: text,
+      lastMessageText: displaySummary,
       lastMessageTimestamp: now,
       unreadCount: 0,
+      disappearingMode: richData?.disappearingAfter || existingChat?.disappearingMode,
     };
     await store.addOrUpdateChat(updatedChat);
 
@@ -367,6 +471,248 @@ export class MqttTransport {
     }
 
     return newMsg;
+  }
+
+  // Group Message Sender (Signal Sender Keys)
+  async sendGroupMessage(
+    group: ChatItem,
+    text: string,
+    richData?: {
+      messageType?: MessageItem["messageType"];
+      poll?: PollData;
+      location?: LocationData;
+      contact?: ContactData;
+      event?: EventData;
+      viewOnce?: boolean;
+      disappearingAfter?: number;
+      replyTo?: { id: string; text: string; senderId: string };
+    }
+  ): Promise<MessageItem> {
+    if (!this.signalAdapter) {
+      throw new Error("SignalAdapter not initialized");
+    }
+
+    // 1. Ensure own SenderKey is distributed to all group members
+    if (!this.distributedSenderKeys.has(group.id)) {
+      const token = useAuthStore.getState().accessToken;
+      const res = await fetch(`/v1/groups/${group.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.ok) {
+        const groupDetails = await res.json();
+        const memberIds = groupDetails.members.map((m: any) => m.user_id);
+
+        await this.signalAdapter.distributeSenderKeyToGroup(
+          group.id,
+          memberIds,
+          async (targetUserId, pairwisePayload) => {
+            const distEnvelope = {
+              id: ulid(),
+              version: 1,
+              sender_user: this.userId,
+              sender_device: this.deviceId,
+              recipient_user: targetUserId,
+              recipient_device: 1,
+              type: 5, // SENDER_KEY_DISTRIBUTION
+              ciphertext: btoa(JSON.stringify(pairwisePayload)),
+              timestamp: Date.now(),
+            };
+            this.client?.publish(`out/${this.userId}/${this.deviceId}`, JSON.stringify(distEnvelope), { qos: 1 });
+          }
+        );
+        this.distributedSenderKeys.add(group.id);
+      }
+    }
+
+    const msgId = ulid();
+    const envelopeId = ulid();
+    const now = Date.now();
+
+    const innerPayload = {
+      id: msgId,
+      text,
+      replyTo: richData?.replyTo,
+      messageType: richData?.messageType || "text",
+      poll: richData?.poll,
+      location: richData?.location,
+      contact: richData?.contact,
+      event: richData?.event,
+      viewOnce: richData?.viewOnce,
+      disappearingAfter: richData?.disappearingAfter || group.disappearingMode,
+      timestamp: now,
+      groupName: group.peerDisplayName,
+      senderPhone: useAuthStore.getState().user?.phone_number,
+      senderDisplayName: useAuthStore.getState().user?.display_name,
+    };
+
+    // Encrypt once with Sender Key
+    const groupCiphertext = await this.signalAdapter.encryptGroupMessage(
+      group.id,
+      JSON.stringify(innerPayload)
+    );
+
+    const envelope = {
+      id: envelopeId,
+      version: 1,
+      sender_user: this.userId,
+      sender_device: this.deviceId,
+      recipient_user: group.id,
+      recipient_device: 1,
+      group_id: group.id,
+      type: 1,
+      ciphertext: groupCiphertext,
+      timestamp: now,
+    };
+
+    const newMsg: MessageItem = {
+      id: msgId,
+      envelopeId,
+      chatId: group.id,
+      groupId: group.id,
+      senderId: this.userId,
+      senderDeviceId: this.deviceId,
+      recipientId: group.id,
+      recipientDeviceId: 1,
+      text,
+      timestamp: now,
+      status: "pending",
+      replyTo: richData?.replyTo,
+      messageType: richData?.messageType || "text",
+      poll: richData?.poll,
+      location: richData?.location,
+      contact: richData?.contact,
+      event: richData?.event,
+      viewOnce: richData?.viewOnce,
+      viewed: false,
+      disappearingAfter: richData?.disappearingAfter || group.disappearingMode,
+    };
+
+    const store = useChatStore.getState();
+    await store.addMessage(newMsg);
+
+    let displaySummary = text;
+    if (newMsg.messageType === "poll") displaySummary = `📊 Poll: ${newMsg.poll?.question}`;
+    if (newMsg.messageType === "location") displaySummary = "📍 Location";
+    if (newMsg.messageType === "contact") displaySummary = `👤 Contact: ${newMsg.contact?.name}`;
+    if (newMsg.messageType === "event") displaySummary = `📅 Event: ${newMsg.event?.title}`;
+    if (newMsg.viewOnce) displaySummary = "🔒 View-once message";
+
+    const updatedChat: ChatItem = {
+      ...group,
+      lastMessageText: displaySummary,
+      lastMessageTimestamp: now,
+      unreadCount: 0,
+    };
+    await store.addOrUpdateChat(updatedChat);
+
+    if (this.client?.connected) {
+      this.client.publish(
+        `out/${this.userId}/${this.deviceId}`,
+        JSON.stringify(envelope),
+        { qos: 1 },
+        (err) => {
+          if (!err) {
+            store.updateMessage(group.id, msgId, { status: "sent" });
+          }
+        }
+      );
+    }
+
+    return newMsg;
+  }
+
+  async sendPollVote(
+    chat: ChatItem,
+    pollMessageId: string,
+    optionId: string
+  ): Promise<void> {
+    const store = useChatStore.getState();
+    await store.votePoll(chat.id, pollMessageId, optionId, this.userId);
+
+    const votePayload = {
+      pollVote: {
+        pollId: pollMessageId,
+        optionId,
+        voterId: this.userId,
+      },
+      timestamp: Date.now(),
+    };
+
+    if (chat.isGroup) {
+      const ciphertext = await this.signalAdapter!.encryptGroupMessage(chat.id, JSON.stringify(votePayload));
+      const envelope = {
+        id: ulid(),
+        version: 1,
+        sender_user: this.userId,
+        sender_device: this.deviceId,
+        recipient_user: chat.id,
+        recipient_device: 1,
+        group_id: chat.id,
+        type: 1,
+        ciphertext,
+        timestamp: Date.now(),
+      };
+      this.client?.publish(`out/${this.userId}/${this.deviceId}`, JSON.stringify(envelope), { qos: 1 });
+    } else {
+      const encrypted = await this.signalAdapter!.encrypt(chat.id, 1, JSON.stringify(votePayload));
+      const envelope = {
+        id: ulid(),
+        version: 1,
+        sender_user: this.userId,
+        sender_device: this.deviceId,
+        recipient_user: chat.id,
+        recipient_device: 1,
+        type: 1,
+        ciphertext: btoa(JSON.stringify(encrypted)),
+        timestamp: Date.now(),
+      };
+      this.client?.publish(`out/${this.userId}/${this.deviceId}`, JSON.stringify(envelope), { qos: 1 });
+    }
+  }
+
+  async sendPinUpdate(
+    chat: ChatItem,
+    messageId: string,
+    isPinned: boolean
+  ): Promise<void> {
+    const store = useChatStore.getState();
+    await store.togglePinMessage(chat.id, messageId);
+
+    const pinPayload = {
+      pin: { msgId: messageId, isPinned },
+      timestamp: Date.now(),
+    };
+
+    if (chat.isGroup) {
+      const ciphertext = await this.signalAdapter!.encryptGroupMessage(chat.id, JSON.stringify(pinPayload));
+      const envelope = {
+        id: ulid(),
+        version: 1,
+        sender_user: this.userId,
+        sender_device: this.deviceId,
+        recipient_user: chat.id,
+        recipient_device: 1,
+        group_id: chat.id,
+        type: 1,
+        ciphertext,
+        timestamp: Date.now(),
+      };
+      this.client?.publish(`out/${this.userId}/${this.deviceId}`, JSON.stringify(envelope), { qos: 1 });
+    } else {
+      const encrypted = await this.signalAdapter!.encrypt(chat.id, 1, JSON.stringify(pinPayload));
+      const envelope = {
+        id: ulid(),
+        version: 1,
+        sender_user: this.userId,
+        sender_device: this.deviceId,
+        recipient_user: chat.id,
+        recipient_device: 1,
+        type: 1,
+        ciphertext: btoa(JSON.stringify(encrypted)),
+        timestamp: Date.now(),
+      };
+      this.client?.publish(`out/${this.userId}/${this.deviceId}`, JSON.stringify(envelope), { qos: 1 });
+    }
   }
 
   async sendReaction(
@@ -451,7 +797,6 @@ export class MqttTransport {
       { qos: 1 }
     );
 
-    // Update locally
     const store = useChatStore.getState();
     await store.updateMessage(recipientUserId, messageId, {
       text: newText,
@@ -503,7 +848,6 @@ export class MqttTransport {
         isDeleted: true,
       });
     } else {
-      // Delete for me only
       await store.updateMessage(recipientUserId, messageId, {
         text: "You deleted this message",
         isDeleted: true,

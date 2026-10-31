@@ -8,6 +8,7 @@ import {
   Search,
   Shield,
   User as UserIcon,
+  Users,
 } from "lucide-react";
 import { fetchCurrentUser } from "../services/api";
 import { useAuthStore } from "../store/authStore";
@@ -15,6 +16,7 @@ import { useChatStore } from "../store/chatStore";
 import { initMqttTransport, transportInstance } from "../transport/mqttClient";
 import { ConversationView } from "./ConversationView";
 import { NewChatModal } from "./NewChatModal";
+import { NewGroupModal } from "./NewGroupModal";
 
 function formatChatTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -40,6 +42,7 @@ export const ChatListShell: React.FC = () => {
 
   const [searchFilter, setSearchFilter] = useState("");
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
+  const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState(false);
 
   // Fetch user profile on mount
   useEffect(() => {
@@ -112,6 +115,13 @@ export const ChatListShell: React.FC = () => {
 
           <div className="flex items-center gap-1 text-[#aebac1]">
             <button
+              onClick={() => setIsNewGroupModalOpen(true)}
+              title="New Group"
+              className="p-2 hover:bg-[#374248] rounded-full transition"
+            >
+              <Users className="w-5 h-5" />
+            </button>
+            <button
               onClick={() => setIsNewChatModalOpen(true)}
               title="New Chat"
               className="p-2 hover:bg-[#374248] rounded-full transition"
@@ -182,12 +192,14 @@ export const ChatListShell: React.FC = () => {
                 >
                   {/* Contact Avatar */}
                   <div className="w-12 h-12 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold text-base flex-shrink-0 relative">
-                    {chat.peerDisplayName ? (
+                    {chat.isGroup ? (
+                      <Users className="w-6 h-6" />
+                    ) : chat.peerDisplayName ? (
                       chat.peerDisplayName.charAt(0).toUpperCase()
                     ) : (
                       <UserIcon className="w-6 h-6" />
                     )}
-                    {isOnline && (
+                    {isOnline && !chat.isGroup && (
                       <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00a884] rounded-full border-2 border-[#111b21]" />
                     )}
                   </div>
@@ -195,8 +207,13 @@ export const ChatListShell: React.FC = () => {
                   {/* Contact Details & Last Message */}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-sm font-semibold text-white truncate">
-                        {chat.peerDisplayName || chat.peerPhoneNumber || chat.id}
+                      <span className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
+                        <span>{chat.peerDisplayName || chat.peerPhoneNumber || chat.id}</span>
+                        {chat.isGroup && (
+                          <span className="text-[10px] bg-[#2a3942] text-[#8696a0] px-1.5 py-0.2 rounded font-normal">
+                            Group
+                          </span>
+                        )}
                       </span>
                       <span className="text-[11px] text-[#8696a0] flex-shrink-0">
                         {formatChatTime(chat.lastMessageTimestamp)}
@@ -268,6 +285,15 @@ export const ChatListShell: React.FC = () => {
       <NewChatModal
         isOpen={isNewChatModalOpen}
         onClose={() => setIsNewChatModalOpen(false)}
+      />
+
+      {/* New Group Modal */}
+      <NewGroupModal
+        isOpen={isNewGroupModalOpen}
+        onClose={() => setIsNewGroupModalOpen(false)}
+        onGroupCreated={(groupChat) => {
+          setActiveChat(groupChat.id);
+        }}
       />
     </div>
   );

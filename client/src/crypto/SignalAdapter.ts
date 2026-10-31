@@ -5,12 +5,14 @@ import {
   SignalProtocolAddress,
 } from "@privacyresearch/libsignal-protocol-typescript";
 import { useAuthStore } from "../store/authStore";
+import { GroupCipher, SenderKeyDistributionPayload } from "./GroupCipher";
 import {
   arrayBufferToBase64,
   base64ToArrayBuffer,
   base64ToBinaryString,
   binaryStringToBase64,
 } from "./helpers";
+import { SenderKeyStore } from "./SenderKeyStore";
 import { SignalStore } from "./SignalStore";
 
 export interface EncryptedMessagePayload {
@@ -21,6 +23,8 @@ export interface EncryptedMessagePayload {
 
 export class SignalAdapter {
   private store: SignalStore;
+  private senderKeyStore: SenderKeyStore;
+  private groupCipher: GroupCipher;
   private userId: string;
   private deviceId: number;
 
@@ -28,10 +32,16 @@ export class SignalAdapter {
     this.userId = userId;
     this.deviceId = deviceId;
     this.store = new SignalStore(userId);
+    this.senderKeyStore = new SenderKeyStore();
+    this.groupCipher = new GroupCipher(this.senderKeyStore);
   }
 
   getStorage(): SignalStore {
     return this.store;
+  }
+
+  getGroupCipher(): GroupCipher {
+    return this.groupCipher;
   }
 
   getUserId(): string {
@@ -218,5 +228,39 @@ export class SignalAdapter {
     }
 
     return new TextDecoder().decode(decryptedBytes);
+  }
+
+  async distributeSenderKeyToGroup(
+    groupId: string,
+    memberUserIds: string[],
+    sendPairwiseCallback: (recipientUserId: string, payload: EncryptedMessagePayload) => Promise<void>
+  ): Promise<void> {
+    const distPayload = await this.groupCipher.createDistributionMessage(groupId, this.userId);
+    const serialized = JSON.stringify({
+      type: "sender_key_distribution",
+      data: distPayload,
+    });
+
+    for (const memberId of memberUserIds) {
+      if (memberId === this.userId) continue;
+      try {
+        const encrypted = await this.encrypt(memberId, 1, serialized);
+        await sendPairwiseCallback(memberId, encrypted);
+      } catch (err) {
+        console.warn(`Failed to distribute sender key to ${memberId}:`, err);
+      }
+    }
+  }
+
+  async encryptGroupMessage(groupId: string, plaintext: string): Promise<string> {
+    return await this.groupCipher.encrypt(groupId, this.userId, plaintext);
+  }
+
+  async decryptGroupMessage(groupId: string, senderId: string, ciphertext: string): Promise<string> {
+    return await this.groupCipher.decrypt(groupId, senderId, ciphertext);
+  }
+
+  async processSenderKeyDistribution(distPayload: SenderKeyDistributionPayload): Promise<void> {
+    await this.groupCipher.processDistributionMessage(distPayload);
   }
 }

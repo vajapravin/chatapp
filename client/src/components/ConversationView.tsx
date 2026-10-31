@@ -2,19 +2,24 @@ import React, { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import {
   ArrowLeft,
+  Info,
   Lock,
   MoreVertical,
   Paperclip,
+  Pin,
   Send,
   Smile,
   User as UserIcon,
+  Users,
   X,
 } from "lucide-react";
-import { ChatItem, MessageItem } from "../storage/db";
+import { ChatItem, ContactData, EventData, LocationData, MessageItem, PollData } from "../storage/db";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
 import { getMqttTransport } from "../transport/mqttClient";
 import { MessageBubble } from "./MessageBubble";
+import { GroupInfoDrawer } from "./GroupInfoDrawer";
+import { RichMessageComposer } from "./RichMessageComposer";
 
 interface ConversationViewProps {
   chat: ChatItem;
@@ -25,7 +30,7 @@ const QUICK_EMOJIS = ["❤️", "👍", "😂", "🔥", "🎉", "🙏", "😊", 
 
 export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack }) => {
   const currentUserId = useAuthStore((s) => s.userId) || "";
-  const { messages, presence, peerTyping } = useChatStore();
+  const { messages, presence, peerTyping, toggleStarMessage, openViewOnceMessage } = useChatStore();
   const chatMessages = messages[chat.id] || [];
 
   const [inputText, setInputText] = useState("");
@@ -34,6 +39,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
   const [editText, setEditText] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<MessageItem | null>(null);
   const [showEmojiBar, setShowEmojiBar] = useState(false);
+  const [isViewOnce, setIsViewOnce] = useState(false);
+  const [isGroupDrawerOpen, setIsGroupDrawerOpen] = useState(false);
+  const [isRichComposerOpen, setIsRichComposerOpen] = useState(false);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<any>(null);
@@ -41,6 +49,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
   const isPeerOnline = presence[chat.id]?.isOnline;
   const peerLastSeen = presence[chat.id]?.lastSeen;
   const isPeerTyping = peerTyping[chat.id];
+
+  const pinnedMessages = chatMessages.filter((m) => m.isPinned);
+  const activePinned = pinnedMessages.length > 0 ? pinnedMessages[pinnedMessages.length - 1] : null;
 
   useEffect(() => {
     // Scroll to bottom when message count changes
@@ -82,23 +93,131 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
         }
       : undefined;
 
+    const wasViewOnce = isViewOnce;
     setInputText("");
     setReplyingTo(null);
     setShowEmojiBar(false);
+    setIsViewOnce(false);
 
     try {
-      await transport.sendMessage(
-        {
-          id: chat.id,
-          phoneNumber: chat.peerPhoneNumber,
-          displayName: chat.peerDisplayName,
-        },
-        trimmed,
-        replyPayload
-      );
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, trimmed, {
+          replyTo: replyPayload,
+          viewOnce: wasViewOnce,
+        });
+      } else {
+        await transport.sendMessage(
+          {
+            id: chat.id,
+            phoneNumber: chat.peerPhoneNumber,
+            displayName: chat.peerDisplayName,
+          },
+          trimmed,
+          {
+            replyTo: replyPayload,
+            viewOnce: wasViewOnce,
+          }
+        );
+      }
     } catch (err) {
       console.error("Failed to send message:", err);
     }
+  };
+
+  const handleSendPoll = async (poll: PollData) => {
+    const transport = getMqttTransport();
+    if (!transport) return;
+    try {
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, "", { messageType: "poll", poll });
+      } else {
+        await transport.sendMessage(
+          { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+          "",
+          { messageType: "poll", poll }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to send poll:", err);
+    }
+  };
+
+  const handleSendLocation = async (location: LocationData) => {
+    const transport = getMqttTransport();
+    if (!transport) return;
+    try {
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, "", { messageType: "location", location });
+      } else {
+        await transport.sendMessage(
+          { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+          "",
+          { messageType: "location", location }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to send location:", err);
+    }
+  };
+
+  const handleSendContact = async (contact: ContactData) => {
+    const transport = getMqttTransport();
+    if (!transport) return;
+    try {
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, "", { messageType: "contact", contact });
+      } else {
+        await transport.sendMessage(
+          { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+          "",
+          { messageType: "contact", contact }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to send contact:", err);
+    }
+  };
+
+  const handleSendEvent = async (event: EventData) => {
+    const transport = getMqttTransport();
+    if (!transport) return;
+    try {
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, "", { messageType: "event", event });
+      } else {
+        await transport.sendMessage(
+          { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+          "",
+          { messageType: "event", event }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to send event:", err);
+    }
+  };
+
+  const handleVotePoll = async (msgId: string, optionId: string) => {
+    const transport = getMqttTransport();
+    if (transport) {
+      await transport.sendPollVote(chat, msgId, optionId);
+    }
+  };
+
+  const handleTogglePin = async (msgId: string) => {
+    const msg = chatMessages.find((m) => m.id === msgId);
+    if (!msg) return;
+    const transport = getMqttTransport();
+    if (transport) {
+      await transport.sendPinUpdate(chat, msgId, !msg.isPinned);
+    }
+  };
+
+  const handleToggleStar = async (msgId: string) => {
+    await toggleStarMessage(chat.id, msgId);
+  };
+
+  const handleOpenViewOnce = async (msgId: string) => {
+    await openViewOnceMessage(chat.id, msgId);
   };
 
   const handleReaction = async (msgId: string, emoji: string) => {
@@ -136,33 +255,48 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
     <div className="flex-1 h-full flex flex-col bg-[#0b141a] text-[#e9edef] overflow-hidden relative">
       {/* Top Conversation Header */}
       <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#222e35] select-none z-10">
-        <div className="flex items-center gap-3">
+        <div
+          onClick={() => chat.isGroup && setIsGroupDrawerOpen(true)}
+          className={`flex items-center gap-3 ${chat.isGroup ? "cursor-pointer hover:opacity-90" : ""}`}
+        >
           {onBack && (
             <button
-              onClick={onBack}
+              onClick={(e) => {
+                e.stopPropagation();
+                onBack();
+              }}
               className="md:hidden p-1.5 -ml-1 text-[#aebac1] hover:text-white rounded-full transition"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
 
-          <div className="w-10 h-10 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold text-base relative">
-            {chat.peerDisplayName ? (
+          <div className="w-10 h-10 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold text-base relative flex-shrink-0">
+            {chat.isGroup ? (
+              <Users className="w-5 h-5" />
+            ) : chat.peerDisplayName ? (
               chat.peerDisplayName.charAt(0).toUpperCase()
             ) : (
               <UserIcon className="w-5 h-5" />
             )}
-            {isPeerOnline && (
+            {isPeerOnline && !chat.isGroup && (
               <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00a884] rounded-full border-2 border-[#202c33]" />
             )}
           </div>
 
           <div className="flex flex-col">
-            <span className="text-sm font-semibold text-white leading-tight">
-              {chat.peerDisplayName || chat.peerPhoneNumber || chat.id}
+            <span className="text-sm font-semibold text-white leading-tight flex items-center gap-1.5">
+              <span>{chat.peerDisplayName || chat.peerPhoneNumber || chat.id}</span>
+              {chat.isGroup && (
+                <span className="text-[10px] bg-[#2a3942] text-[#8696a0] px-1.5 py-0.2 rounded font-normal">
+                  Group
+                </span>
+              )}
             </span>
             <span className="text-[12px] leading-tight">
-              {isPeerTyping ? (
+              {chat.isGroup ? (
+                <span className="text-[#8696a0]">tap here for group info</span>
+              ) : isPeerTyping ? (
                 <span className="text-[#00a884] font-medium animate-pulse">
                   typing...
                 </span>
@@ -182,6 +316,15 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
         </div>
 
         <div className="flex items-center gap-2 text-[#aebac1]">
+          {chat.isGroup && (
+            <button
+              onClick={() => setIsGroupDrawerOpen(true)}
+              title="Group info"
+              className="p-2 hover:bg-[#374248] rounded-full transition"
+            >
+              <Info className="w-5 h-5" />
+            </button>
+          )}
           <div className="flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#111b21] border border-[#2a3942] text-[11px] text-[#8696a0]">
             <Lock className="w-3.5 h-3.5 text-[#00a884]" />
             <span className="hidden sm:inline">End-to-End Encrypted</span>
@@ -192,6 +335,25 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
         </div>
       </div>
 
+      {/* Pinned Message Banner */}
+      {activePinned && (
+        <div className="bg-[#182229] border-b border-[#2a3942] px-4 py-2 flex items-center justify-between text-xs text-[#e9edef] z-10 shadow-sm animate-in slide-in-from-top-1">
+          <div className="flex items-center gap-2 truncate">
+            <Pin className="w-3.5 h-3.5 text-[#00a884] flex-shrink-0" />
+            <span className="text-[#00a884] font-semibold">Pinned:</span>
+            <span className="text-[#8696a0] truncate">
+              {activePinned.text || (activePinned.messageType === "poll" ? activePinned.poll?.question : activePinned.messageType) || "Message"}
+            </span>
+          </div>
+          <button
+            onClick={() => handleTogglePin(activePinned.id)}
+            className="text-[#8696a0] hover:text-white text-[11px] px-2 py-0.5 rounded hover:bg-[#202c33] transition"
+          >
+            Unpin
+          </button>
+        </div>
+      )}
+
       {/* Message Stream Area */}
       <div
         ref={scrollRef}
@@ -201,8 +363,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
         <div className="flex justify-center mb-6">
           <div className="max-w-md bg-[#182229] border border-[#2a3942] rounded-xl px-4 py-2.5 text-center text-xs text-[#8696a0] leading-relaxed shadow-sm">
             <Lock className="w-3.5 h-3.5 text-[#00a884] inline mr-1.5 -mt-0.5" />
-            Messages and calls are end-to-end encrypted. No one outside of this chat,
-            not even Chatapp, can read or listen to them.
+            {chat.isGroup
+              ? "Messages to this group are end-to-end encrypted with Signal Sender Keys. Only group members can read them."
+              : "Messages and calls are end-to-end encrypted. No one outside of this chat, not even Chatapp, can read or listen to them."}
           </div>
         </div>
 
@@ -216,6 +379,10 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
             onReact={handleReaction}
             onEdit={handleStartEdit}
             onDelete={(m) => setDeleteCandidate(m)}
+            onVotePoll={handleVotePoll}
+            onTogglePin={handleTogglePin}
+            onToggleStar={handleToggleStar}
+            onOpenViewOnce={handleOpenViewOnce}
           />
         ))}
 
@@ -278,6 +445,8 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
 
         <button
           type="button"
+          onClick={() => setIsRichComposerOpen(true)}
+          title="Attach Rich Content (Poll, Location, Contact, Event)"
           className="p-2 text-[#8696a0] hover:text-white hover:bg-[#374248] rounded-full transition"
         >
           <Paperclip className="w-5 h-5" />
@@ -288,10 +457,24 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
             type="text"
             value={inputText}
             onChange={handleInputChange}
-            placeholder="Type a message"
+            placeholder={isViewOnce ? "Type a view-once message..." : "Type a message"}
             className="w-full bg-[#2a3942] text-sm text-white px-4 py-2.5 rounded-xl focus:outline-none placeholder-[#8696a0]"
           />
         </div>
+
+        {/* View-Once Toggle */}
+        <button
+          type="button"
+          onClick={() => setIsViewOnce(!isViewOnce)}
+          title={isViewOnce ? "View-once enabled" : "Set message as view-once"}
+          className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-xs transition ${
+            isViewOnce
+              ? "bg-[#00a884]/20 border-[#00a884] text-[#00a884]"
+              : "border-[#8696a0] text-[#8696a0] hover:text-white hover:border-white"
+          }`}
+        >
+          1
+        </button>
 
         <button
           type="submit"
@@ -369,6 +552,25 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
           </div>
         </div>
       )}
+
+      {/* Group Info Drawer */}
+      {chat.isGroup && (
+        <GroupInfoDrawer
+          chat={chat}
+          isOpen={isGroupDrawerOpen}
+          onClose={() => setIsGroupDrawerOpen(false)}
+        />
+      )}
+
+      {/* Rich Message Composer Modal */}
+      <RichMessageComposer
+        isOpen={isRichComposerOpen}
+        onClose={() => setIsRichComposerOpen(false)}
+        onSendPoll={handleSendPoll}
+        onSendLocation={handleSendLocation}
+        onSendContact={handleSendContact}
+        onSendEvent={handleSendEvent}
+      />
     </div>
   );
 };

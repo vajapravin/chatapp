@@ -28,8 +28,8 @@ async def persist_envelope(session, env_data: dict) -> None:
 
     stmt = text(
         """
-        INSERT INTO envelopes (id, version, sender_user, sender_device, recipient_user, recipient_device, type, ciphertext, timestamp, delivered, acked, created_at)
-        VALUES (:id, :version, :sender_user, :sender_device, :recipient_user, :recipient_device, :type, :ciphertext, :timestamp, false, false, NOW())
+        INSERT INTO envelopes (id, version, sender_user, sender_device, recipient_user, recipient_device, group_id, type, ciphertext, timestamp, delivered, acked, created_at)
+        VALUES (:id, :version, :sender_user, :sender_device, :recipient_user, :recipient_device, :group_id, :type, :ciphertext, :timestamp, false, false, NOW())
         ON CONFLICT (id) DO NOTHING
         """
     )
@@ -40,14 +40,24 @@ async def persist_envelope(session, env_data: dict) -> None:
             "version": env_data.get("version", 1),
             "sender_user": env_data["sender_user"],
             "sender_device": env_data.get("sender_device", 1),
-            "recipient_user": env_data["recipient_user"],
+            "recipient_user": env_data.get("recipient_user", ""),
             "recipient_device": env_data.get("recipient_device", 1),
+            "group_id": env_data.get("group_id"),
             "type": env_data.get("type", 1),
             "ciphertext": env_data.get("ciphertext", ""),
             "timestamp": env_data.get("timestamp", 0),
         },
     )
     await session.commit()
+
+
+async def get_group_members(session, group_id: str) -> list[str]:
+    """Fetch all user IDs belonging to a group."""
+    from sqlalchemy import text
+
+    stmt = text("SELECT user_id FROM group_members WHERE group_id = :group_id")
+    res = await session.execute(stmt, {"group_id": group_id})
+    return [r[0] for r in res.all()]
 
 
 async def mark_delivered_or_delete(session, envelope_id: str, is_read: bool = False) -> None:
@@ -107,47 +117,100 @@ async def run_router():
                     recipient_user = env_data.get("recipient_user", "")
                     recipient_device = env_data.get("recipient_device", 1)
 
-                    # 1. MESSAGE / EDIT / DELETE / REACTION (type 1, 6, 7, 8)
-                    if env_type in (1, 6, 7, 8):
-                        # Stage in Postgres
-                        try:
-                            async with async_session() as session:
-                                await persist_envelope(session, env_data)
-                        except Exception as e:
-                            logger.error("Failed to persist envelope %s: %s", env_id, e)
+                    # 1. MESSAGE / SENDER_KEY_DISTRIBUTION / EDIT / DELETE / REACTION (type 1, 5, 6, 7, 8)
+                    if env_type in (1, 5, 6, 7, 8):
+                        group_id = env_data.get("group_id")
 
-                        # Server Ack back to sender: u/{sender}/{dev}/ack
-                        ack_topic = f"u/{sender_user}/{sender_device}/ack"
-                        ack_payload = json.dumps({
-                            "id": env_id,
-                            "status": "server_ack",
-                            "timestamp": env_data.get("timestamp"),
-                        })
-                        await mqtt_client.publish(ack_topic, payload=ack_payload.encode(), qos=1)
+                        # A. Group message fan-out
+                        if group_id:
+                            group_members = []
+                            try:
+                                async with async_session() as session:
+                                    group_members = await get_group_members(session, group_id)
+                                    if sender_user not in group_members:
+                                        logger.warning("Sender %s is not a member of group %s. Dropping envelope %s", sender_user, group_id, env_id)
+                                        continue
+                                    await persist_envelope(session, env_data)
+                            except Exception as e:
+                                logger.error("Failed to persist group envelope %s: %s", env_id, e)
 
-                        # Forward to recipient inbox: u/{recipient}/{dev}/inbox
-                        inbox_topic = f"u/{recipient_user}/{recipient_device}/inbox"
-                        await mqtt_client.publish(inbox_topic, payload=payload_bytes, qos=1)
-                        logger.info(
-                            "Routed envelope %s (type %d) from %s:%d to %s:%d",
-                            env_id,
-                            env_type,
-                            sender_user,
-                            sender_device,
-                            recipient_user,
-                            recipient_device,
-                        )
-
-                        # Publish to NATS for push notification if offline
-                        if nc:
-                            event_data = {
+                            # Server Ack back to sender
+                            ack_topic = f"u/{sender_user}/{sender_device}/ack"
+                            ack_payload = json.dumps({
                                 "id": env_id,
-                                "sender_user": sender_user,
-                                "recipient_user": recipient_user,
-                                "recipient_device": recipient_device,
+                                "status": "server_ack",
+                                "group_id": group_id,
                                 "timestamp": env_data.get("timestamp"),
-                            }
-                            await nc.publish("events.push.notify", json.dumps(event_data).encode())
+                            })
+                            await mqtt_client.publish(ack_topic, payload=ack_payload.encode(), qos=1)
+
+                            # Fan out to all group members (excluding sender)
+                            fanout_count = 0
+                            for member_uid in group_members:
+                                if member_uid == sender_user:
+                                    continue
+                                inbox_topic = f"u/{member_uid}/1/inbox"
+                                await mqtt_client.publish(inbox_topic, payload=payload_bytes, qos=1)
+                                fanout_count += 1
+                                if nc:
+                                    event_data = {
+                                        "id": env_id,
+                                        "sender_user": sender_user,
+                                        "recipient_user": member_uid,
+                                        "recipient_device": 1,
+                                        "group_id": group_id,
+                                        "timestamp": env_data.get("timestamp"),
+                                    }
+                                    await nc.publish("events.push.notify", json.dumps(event_data).encode())
+
+                            logger.info(
+                                "Fanned out group envelope %s (type %d) to %d members in group %s",
+                                env_id,
+                                env_type,
+                                fanout_count,
+                                group_id,
+                            )
+
+                        # B. Direct 1:1 pairwise envelope
+                        else:
+                            try:
+                                async with async_session() as session:
+                                    await persist_envelope(session, env_data)
+                            except Exception as e:
+                                logger.error("Failed to persist envelope %s: %s", env_id, e)
+
+                            # Server Ack back to sender: u/{sender}/{dev}/ack
+                            ack_topic = f"u/{sender_user}/{sender_device}/ack"
+                            ack_payload = json.dumps({
+                                "id": env_id,
+                                "status": "server_ack",
+                                "timestamp": env_data.get("timestamp"),
+                            })
+                            await mqtt_client.publish(ack_topic, payload=ack_payload.encode(), qos=1)
+
+                            # Forward to recipient inbox: u/{recipient}/{dev}/inbox
+                            inbox_topic = f"u/{recipient_user}/{recipient_device}/inbox"
+                            await mqtt_client.publish(inbox_topic, payload=payload_bytes, qos=1)
+                            logger.info(
+                                "Routed envelope %s (type %d) from %s:%d to %s:%d",
+                                env_id,
+                                env_type,
+                                sender_user,
+                                sender_device,
+                                recipient_user,
+                                recipient_device,
+                            )
+
+                            # Publish to NATS for push notification if offline
+                            if nc:
+                                event_data = {
+                                    "id": env_id,
+                                    "sender_user": sender_user,
+                                    "recipient_user": recipient_user,
+                                    "recipient_device": recipient_device,
+                                    "timestamp": env_data.get("timestamp"),
+                                }
+                                await nc.publish("events.push.notify", json.dumps(event_data).encode())
 
                     # 2. RECEIPT (type 2)
                     elif env_type == 2:
