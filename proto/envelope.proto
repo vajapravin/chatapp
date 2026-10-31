@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package chatapp;
+
+enum EnvelopeType {
+  ENVELOPE_TYPE_UNSPECIFIED = 0;
+  MESSAGE = 1;
+  RECEIPT = 2;
+  TYPING = 3;
+  CALL_SIGNAL = 4;
+  SENDER_KEY_DISTRIBUTION = 5;
+  EDIT = 6;
+  DELETE = 7;
+  REACTION = 8;
+}
+
+message Envelope {
+  uint32 version = 1;
+  string id = 2;                // ULID
+  string sender_user = 3;
+  uint32 sender_device = 4;
+  string recipient_user = 5;
+  uint32 recipient_device = 6;
+  EnvelopeType type = 7;
+  int64 timestamp = 8;          // Milliseconds unix epoch
+  bytes ciphertext = 9;         // Signal Protocol ciphertext
+}

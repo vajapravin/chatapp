@@ -1,0 +1,214 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: chatapp-postgres
+    profiles: ["core", "full"]
+    mem_limit: 256m
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-chatapp}
+      POSTGRES_USER: ${POSTGRES_USER:-chatapp}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chatapp} -d ${POSTGRES_DB:-chatapp}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - chatnet
+
+  redis:
+    image: redis:7-alpine
+    container_name: chatapp-redis
+    profiles: ["core", "full"]
+    mem_limit: 96m
+    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --save 60 1
+    ports:
+      - "${REDIS_PORT:-6380}:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - chatnet
+
+  nats:
+    image: nats:2.10-alpine
+    container_name: chatapp-nats
+    profiles: ["core", "full"]
+    mem_limit: 64m
+    command: ["-js", "-m", "8222"]
+    ports:
+      - "${NATS_PORT:-4223}:4222"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:8222/varz"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 3s
+    networks:
+      - chatnet
+
+  api:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    container_name: chatapp-api
+    profiles: ["core", "full"]
+    mem_limit: 192m
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
+      REDIS_URL: redis://redis:6379/0
+      NATS_URL: nats://nats:4222
+    ports:
+      - "${API_PORT:-8001}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - chatnet
+
+  mosquitto:
+    build:
+      context: deploy/mosquitto
+      dockerfile: Dockerfile
+    container_name: chatapp-mosquitto
+    profiles: ["core", "full"]
+    mem_limit: 64m
+    ports:
+      - "${MQTT_TCP_PORT:-1883}:1883"
+      - "${MQTT_WS_PORT:-9001}:9001"
+    volumes:
+      - mosquitto_data:/mosquitto/data
+      - mosquitto_log:/mosquitto/log
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - chatnet
+
+  web:
+    build:
+      context: client
+      dockerfile: Dockerfile
+    container_name: chatapp-web
+    profiles: ["core", "full"]
+    mem_limit: 48m
+    ports:
+      - "${WEB_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 3s
+    networks:
+      - chatnet
+
+  router:
+    build:
+      context: .
+      dockerfile: router/Dockerfile
+    container_name: chatapp-router
+    profiles: ["core", "full"]
+    mem_limit: 96m
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_USER: router
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-insecure-secret-key-change-in-production-12345678}
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      mosquitto:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+    networks:
+      - chatnet
+
+  presence:
+    build:
+      context: .
+      dockerfile: presence/Dockerfile
+    container_name: chatapp-presence
+    profiles: ["core", "full"]
+    mem_limit: 64m
+    environment:
+      MQTT_HOST: mosquitto
+      MQTT_PORT: 1883
+      MQTT_USER: router
+      JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-insecure-secret-key-change-in-production-12345678}
+      REDIS_URL: redis://redis:6379/0
+    depends_on:
+      mosquitto:
+        condition: service_started
+      redis:
+        condition: service_healthy
+    networks:
+      - chatnet
+
+  push:
+    build:
+      context: .
+      dockerfile: push/Dockerfile
+    container_name: chatapp-push
+    profiles: ["core", "full"]
+    mem_limit: 64m
+    environment:
+      NATS_URL: nats://nats:4222
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+    depends_on:
+      nats:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - chatnet
+
+  cloudflared:
+    build:
+      context: deploy/cloudflared
+      dockerfile: Dockerfile
+    container_name: chatapp-cloudflared
+    profiles: ["core", "full"]
+    mem_limit: 64m
+    restart: unless-stopped
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
+    networks:
+      - chatnet
+
+networks:
+  chatnet:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redis_data:
+  mosquitto_data:
+  mosquitto_log:

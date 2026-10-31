@@ -1,0 +1,29 @@
+# Environment & Secrets
+.env
+.venv/
+env/
+venv/
+*.local
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Node / Web Client
+client/node_modules/
+client/dist/
+client/.vite/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker volumes & logs
+*.log
+.DS_Store

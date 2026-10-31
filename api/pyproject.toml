@@ -1,0 +1,43 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "chatapp-api"
+version = "0.1.0"
+description = "FastAPI backend REST and auth service for chatapp"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.29.0",
+    "sqlalchemy[asyncio]>=2.0.29",
+    "asyncpg>=0.29.0",
+    "alembic>=1.13.0",
+    "pydantic-settings>=2.2.0",
+    "redis>=5.0.3",
+    "nats-py>=2.7.0",
+    "prometheus-client>=0.20.0",
+    "chatapp-shared",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.1.0",
+    "pytest-asyncio>=0.23.0",
+    "httpx>=0.27.0",
+    "ruff>=0.3.4",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+ignore = [
+    "B008",
+    "BLE001",
+]
