@@ -61,7 +61,7 @@ Configured via environment variables in `.env`:
 | `MQTT_PORT` | Mosquitto internal TCP port | `1883` |
 | `MQTT_USERNAME` | Worker MQTT username | `router` |
 | `MQTT_PASSWORD` | Worker MQTT password | Matches `JWT_SECRET_KEY` |
-| `REDIS_URL` | Redis connection endpoint | `redis://redis:6379/0` |
+| `REDIS_URL` | Redis connection endpoint | `redis://redis:6380/0` |
 
 ---
 

@@ -6,15 +6,15 @@ Phase 1 establishes the foundational infrastructure, data models, edge ingress r
 
 At the completion of Phase 1:
 - The `core` compose profile starts cleanly with `docker compose --profile core up -d`.
-- Memory utilization of all core containers adheres strictly to the **≤ 1.4 GB total RAM** ceiling on the Synology DS425+ NAS.
-- Edge ingress via Cloudflare Tunnel (`cloudflared`) connects external subdomains (`chat`, `api`, `mqtt`, `s3`) securely to internal services.
+- Memory utilization of all core containers adheres strictly to the **≤ 1.4 GB total RAM** ceiling on low-resource hosts.
+- Edge ingress via Cloudflare Tunnel or reverse proxy connects external subdomains (`chat`, `api`, `mqtt`, `s3`) securely to internal services.
 - Postgres 16 runs with initial schema migrations managed by Alembic.
 - Redis 7 provides rate limiting, OTP storage, and session caching.
 - NATS JetStream operates as the internal asynchronous event bus.
 - Mosquitto 2.x runs with WebSockets on port 9001 and enforces JWT authentication and ACL checks via `mosquitto-go-auth` querying the `api` service.
 - The `api` FastAPI service implements user registration, OTP generation/verification (`console` and `email` providers), JWT token issuance/refresh (EdDSA/ES256), and health/metrics endpoints.
 - The React 18 + TypeScript + Vite web client provides a login screen, OTP verification, and an authenticated empty chat list shell.
-- Comprehensive deployment instructions are provided in `deploy/synology/README.md`.
+- Comprehensive deployment instructions are provided in `deploy/README.md`.
 
 ---
 
@@ -180,10 +180,8 @@ chatapp/
 │   ├── mosquitto/
 │   │   ├── Dockerfile
 │   │   └── mosquitto.conf
-│   ├── cloudflared/
-│   │   └── config.yml
-│   └── synology/
-│       └── README.md
+│   └── postgres/
+│       └── init.sql
 └── client/
     ├── package.json
     ├── tsconfig.json
@@ -210,12 +208,12 @@ chatapp/
 ## 6. Verification and Acceptance Criteria
 
 1. **Clean Stack Launch**:
-   - `docker compose --profile core up -d` starts `postgres`, `redis`, `nats`, `mosquitto`, `api`, `web`, and `cloudflared`.
+   - `docker compose --profile core up -d` starts `postgres`, `redis`, `nats`, `mosquitto`, `api`, and `web`.
    - All services report healthy status.
 2. **Memory Constraint Compliance**:
    - `docker stats --no-stream` confirms combined memory usage is **≤ 1.4 GB** (target ≤ 800 MB).
 3. **End-to-End Registration & Auth Flow**:
-   - User navigates to web client (`http://localhost:5173` or `chat.vajapravin.me`).
+   - User navigates to web client (`http://localhost:3001` or `chat.vajapravin.me`).
    - Requests OTP with test phone number and email.
    - OTP appears in `docker logs api` (under `OTP_PROVIDER=console`).
    - Submitting the code logs user in, saves JWT in state, and renders the empty chat shell.

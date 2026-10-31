@@ -9,8 +9,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     # Database & Cache
-    DATABASE_URL: str = "postgresql+asyncpg://chatapp:chatapp_secret@postgres:5432/chatapp"
-    REDIS_URL: str = "redis://redis:6379/0"
+    DATABASE_URL: str = "postgresql+asyncpg://chatapp:chatapp_secret@postgres:5435/chatapp"
+    REDIS_URL: str = "redis://redis:6380/0"
     NATS_URL: str = "nats://nats:4222"
 
     # Security & Tokens
@@ -34,9 +34,8 @@ class Settings(BaseSettings):
 
     # CORS
     CORS_ORIGINS: list[str] = [
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "http://localhost:8080",
+        "http://localhost:5174",
+        "http://localhost:3001",
         "https://chat.vajapravin.me",
     ]
 

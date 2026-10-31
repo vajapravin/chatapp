@@ -2,7 +2,7 @@
 
 ## Role and goal
 
-You are a senior full-stack engineer and security engineer. Build a complete, production-quality, **self-hosted, end-to-end encrypted messaging web app** with WhatsApp-like features. The whole system must run with `docker compose` on a **Synology DS425+ NAS** (Intel Celeron J4125, 4 cores, x86_64, **2 GB RAM by default**, DSM 7.x Container Manager) and be exposed to the internet only through a **Cloudflare Tunnel** on the domain `vajapravin.me`.
+You are a senior full-stack engineer and security engineer. Build a complete, production-quality, **self-hosted, end-to-end encrypted messaging web app** with WhatsApp-like features. The whole system must run with `docker compose` on any standard **Linux server, VPS, or workstation** (capping active memory under **1.4 GB total RAM**, lightweight for low-resource environments) and can be exposed to the internet through a **Cloudflare Tunnel** or reverse proxy.
 
 App name: `chatapp` (use this as a placeholder everywhere; keep it in one config value so it can be renamed).
 
@@ -157,7 +157,7 @@ chatapp/
     docker-compose.yml                    # profiles: core, calls-sfu, calls-selfhosted, full
     cloudflared/config.yml
     mosquitto/  postgres/  nats/  livekit/
-    synology/README.md                    # step-by-step Container Manager deployment
+    README.md                             # step-by-step deployment guide
   docs/  ARCHITECTURE.md  SECURITY.md  THREAT_MODEL.md  API.md  RUNBOOK.md
   .env.example
   Makefile                                # make up, make down, make test, make migrate, make seed, make backup
@@ -166,17 +166,17 @@ chatapp/
 
 ## Quality bar
 
-- Python: ruff, mypy (strict), pytest with ≥ 80 % coverage on `api` and `router`; integration tests with testcontainers.
+- Python: ruff, mypy (strict), pytest with high coverage on `api` and `router`; integration tests with testcontainers.
 - TS: ESLint, `tsc --noEmit`, Vitest for crypto and storage; Playwright end-to-end test: two users register, exchange keys, send text, image and voice note, see receipts, make a call (with fake media devices).
 - Crypto tests: X3DH and Double Ratchet test vectors, out-of-order delivery, multi-device fan-out, group sender keys, identity change warning.
 - OpenAPI spec generated and committed; `docs/API.md` lists every endpoint.
 - Health checks on every container; structured JSON logs; `/metrics` endpoints (Prometheus format) even in `core`.
-- Postgres and Redis data on named volumes mapped to `/volume1/docker/chatapp/...`; `make backup` dumps Postgres to MinIO.
+- Postgres and Redis data on named volumes; `make backup` dumps Postgres to MinIO.
 - Container images must be `linux/amd64` and as small as possible (python:3.12-slim, multi-stage builds).
 
 ## Delivery phases
 
-1. **Foundation:** repo layout, compose `core` profile, Postgres + Alembic, Redis, NATS, Mosquitto with auth plugin, `api` skeleton with registration (`email` and `console` OTP providers), JWT, cloudflared config, web shell with login. Synology deployment guide.
+1. **Foundation:** repo layout, compose `core` profile, Postgres + Alembic, Redis, NATS, Mosquitto with auth plugin, `api` skeleton with registration (`email` and `console` OTP providers), JWT, cloudflared config, web shell with login. Deployment guide.
 2. **E2EE 1:1 messaging:** key distribution, Signal adapter, router, envelopes, receipts, typing, presence, local encrypted DB, text/emoji/reactions/replies/edit/delete, Web Push.
 3. **Groups and rich messages:** sender keys, groups up to 1,024, admins, mentions, polls, events, contacts, location, pins, stars, forwarding limits, disappearing and view-once.
 4. **Media:** encrypted chunked resumable uploads to MinIO, images, video, documents, voice notes with on-device transcription, stickers, GIFs.

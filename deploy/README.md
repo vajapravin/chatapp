@@ -1,6 +1,6 @@
 # Deployment & Infrastructure (`deploy/`)
 
-This directory contains deployment assets, container configurations, and platform-specific guides for running `chatapp`.
+This directory contains deployment assets, container configurations, and infrastructure guides for running `chatapp`.
 
 ---
 
@@ -8,20 +8,21 @@ This directory contains deployment assets, container configurations, and platfor
 
 | Subdirectory | Target / Role | Documentation |
 |---|---|---|
-| [`deploy/mosquitto/`](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/mosquitto) | Eclipse Mosquitto 2.x MQTT Broker with `mosquitto-go-auth` plugin | [deploy/mosquitto/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/mosquitto/README.md) |
-| [`deploy/postgres/`](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/postgres) | PostgreSQL 16 Alpine initialization and database extensions | [deploy/postgres/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/postgres/README.md) |
-| [`deploy/synology/`](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/synology) | Synology DS425+ NAS deployment guide via DSM 7.x Container Manager | [deploy/synology/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/synology/README.md) |
+| [`deploy/mosquitto/`](./mosquitto) | Eclipse Mosquitto 2.x MQTT Broker with `mosquitto-go-auth` plugin | [deploy/mosquitto/README.md](./mosquitto/README.md) |
+| [`deploy/postgres/`](./postgres) | PostgreSQL 16 Alpine initialization and database extensions | [deploy/postgres/README.md](./postgres/README.md) |
 
 ---
 
 ## Target Deployment Environments
 
-1. **Local Development (macOS / Linux)**:
+1. **Local Development & Testing**:
    - Run via Docker Compose: `docker compose up -d`
-   - Binds ports `3000` (Web), `8001` (API), `1883` / `9001` (MQTT), `5433` (Postgres), `6380` (Redis), `4223` (NATS).
+   - Binds host ports `3001` (Web), `8001` (API), `1883` / `9001` (MQTT), `5435` (Postgres), `6380` (Redis), `4223` (NATS).
 
-2. **Synology DS425+ NAS (Production Target)**:
-   - Intel Celeron J4125 quad-core, 2 GB physical RAM.
-   - Managed via DSM 7.2+ Container Manager.
-   - Ingress handled by your pre-existing NAS `cloudflared` container routing to host ports (`3000`, `8001`, `9001`).
-   - Hard memory ceiling: ≤ 1.4 GB total RAM.
+2. **Self-Hosted Linux Server / VPS / Cloud (Production Target)**:
+   - Suitable for any standard Linux server or low-resource VPS (1 GB – 2 GB RAM).
+   - Ingress handled by a reverse proxy (e.g. Nginx, Caddy, Traefik) or Cloudflare Tunnel routing to host ports:
+     - Web UI: `http://localhost:3001`
+     - REST API: `http://localhost:8001`
+     - WebSocket MQTT: `http://localhost:9001`
+   - Memory footprint across all 9 containers is **< 300 MiB RAM**, leaving abundant resources for the host OS.

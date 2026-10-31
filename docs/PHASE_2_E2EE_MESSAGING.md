@@ -17,7 +17,7 @@ At the completion of Phase 2:
   - Sent / Received message bubbles with quote banners, emoji reactions, editing (15-min window), and delete for me / everyone.
   - Delivery ticks (✓ sent, ✓✓ delivered, blue ✓✓ read).
   - Real-time peer typing indicator broadcast and stream display.
-- **Total Memory Budget**: All 10 Docker containers active concurrently under **~288 MiB RAM**, well below the **1.4 GB total RAM ceiling** on the Synology DS425+ NAS.
+- **Total Memory Budget**: All Docker containers active concurrently under **~288 MiB RAM**, well below the **1.4 GB total RAM ceiling** on low-resource server environments.
 
 ---
 

@@ -118,6 +118,6 @@ node scripts/test_client_e2ee.mjs
 
 The client is packaged into a multi-stage Docker container (`chatapp-web`) using Alpine Linux and Nginx:
 - Static assets are cached for 30 days.
-- `/v1/` routes to the `api` service (`http://api:8000/v1/`).
+- `/v1/` routes to the `api` service (`http://api:8001/v1/`).
 - `/mqtt` routes to the Mosquitto broker (`http://mosquitto:9001`) with WebSocket upgrade headers.
 - Total runtime RAM consumption is **~9 MiB**.

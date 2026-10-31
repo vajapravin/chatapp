@@ -4,17 +4,19 @@ services:
     container_name: chatapp-postgres
     profiles: ["core", "full"]
     mem_limit: 256m
+    command: ["postgres", "-p", "5435"]
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-chatapp}
       POSTGRES_USER: ${POSTGRES_USER:-chatapp}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}
+      PGPORT: "5435"
     ports:
-      - "${POSTGRES_PORT:-5433}:5432"
+      - "${POSTGRES_PORT:-5435}:5435"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-chatapp} -d ${POSTGRES_DB:-chatapp}"]
+      test: ["CMD-SHELL", "pg_isready -p 5435 -U ${POSTGRES_USER:-chatapp} -d ${POSTGRES_DB:-chatapp}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -26,13 +28,13 @@ services:
     container_name: chatapp-redis
     profiles: ["core", "full"]
     mem_limit: 96m
-    command: redis-server --maxmemory 64mb --maxmemory-policy allkeys-lru --save 60 1
+    command: redis-server --port 6380 --maxmemory 64mb --maxmemory-policy allkeys-lru --save 60 1
     ports:
-      - "${REDIS_PORT:-6380}:6379"
+      - "${REDIS_PORT:-6380}:6380"
     volumes:
       - redis_data:/data
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "-p", "6380", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -66,18 +68,18 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5435/${POSTGRES_DB:-chatapp}
+      REDIS_URL: redis://redis:6380/0
       NATS_URL: nats://nats:4222
     ports:
-      - "${API_PORT:-8001}:8000"
+      - "${API_PORT:-8001}:8001"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/healthz"]
+      test: ["CMD", "curl", "-f", "http://localhost:8001/healthz"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -112,12 +114,12 @@ services:
     profiles: ["core", "full"]
     mem_limit: 48m
     ports:
-      - "${WEB_PORT:-3000}:80"
+      - "${WEB_PORT:-3001}:3001"
     depends_on:
       api:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:80/"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://127.0.0.1:3001/"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -138,8 +140,8 @@ services:
       MQTT_USER: router
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-insecure-secret-key-change-in-production-12345678}
       NATS_URL: nats://nats:4222
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
-      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5435/${POSTGRES_DB:-chatapp}
+      REDIS_URL: redis://redis:6380/0
     depends_on:
       mosquitto:
         condition: service_started
@@ -162,7 +164,7 @@ services:
       MQTT_PORT: 1883
       MQTT_USER: router
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-insecure-secret-key-change-in-production-12345678}
-      REDIS_URL: redis://redis:6379/0
+      REDIS_URL: redis://redis:6380/0
     depends_on:
       mosquitto:
         condition: service_started
@@ -180,7 +182,7 @@ services:
     mem_limit: 64m
     environment:
       NATS_URL: nats://nats:4222
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5435/${POSTGRES_DB:-chatapp}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
     depends_on:
       nats:

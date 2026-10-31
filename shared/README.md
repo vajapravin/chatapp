@@ -2,7 +2,7 @@
 
 The `shared/` directory contains cross-cutting Python logic and schemas shared across the backend microservices (`api`, `router`, `presence`, `push`).
 
-It is structured as a standard installable Python wheel package located at [`shared/py/`](file:///Users/pravinmacm4/Documents/aml/chatapp/shared/py).
+It is structured as a standard installable Python wheel package located at [`shared/py/`](./py).
 
 ---
 

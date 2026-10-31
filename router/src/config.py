@@ -15,10 +15,10 @@ class Settings(BaseSettings):
     NATS_URL: str = "nats://nats:4222"
 
     # Database
-    DATABASE_URL: str = "postgresql+asyncpg://chatapp:chatapp_secret@postgres:5432/chatapp"
+    DATABASE_URL: str = "postgresql+asyncpg://chatapp:chatapp_secret@postgres:5435/chatapp"
 
     # Redis for presence checks
-    REDIS_URL: str = "redis://redis:6379/0"
+    REDIS_URL: str = "redis://redis:6380/0"
 
     model_config = SettingsConfigDict(
         env_file=".env",

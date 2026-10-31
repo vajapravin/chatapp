@@ -13,7 +13,7 @@ MQTT_HOST = os.getenv("MQTT_HOST", "mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
 MQTT_USER = os.getenv("MQTT_USER", "router")
 JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", "dev-insecure-secret-key-change-in-production-12345678")
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379/0")
+REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6380/0")
 
 
 async def run_presence():

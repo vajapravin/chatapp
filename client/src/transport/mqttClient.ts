@@ -30,13 +30,13 @@ export class MqttTransport {
     // Use /mqtt proxy or direct port 9001
     const isHttps = typeof window !== "undefined" && window.location.protocol === "https:";
     const host = typeof window !== "undefined" ? window.location.hostname : "localhost";
-    const port = typeof window !== "undefined" && window.location.port ? window.location.port : "3000";
+    const port = typeof window !== "undefined" && window.location.port ? window.location.port : "3001";
     
     // In browser container behind Nginx, /mqtt is forwarded to mosquitto:9001
-    // In standalone vite dev, connect directly to port 9001
-    const brokerUrl = port === "3000"
-      ? `${isHttps ? "wss:" : "ws:"}//${host}:${port}/mqtt`
-      : `${isHttps ? "wss:" : "ws:"}//${host}:9001`;
+    // In standalone vite dev (e.g. port 5174), connect directly to port 9001
+    const brokerUrl = port === "5174"
+      ? `${isHttps ? "wss:" : "ws:"}//${host}:9001`
+      : `${isHttps ? "wss:" : "ws:"}//${host}:${port}/mqtt`;
 
     const clientId = `chatapp_web_${this.userId}_${this.deviceId}_${Math.random().toString(16).substring(2, 8)}`;
 

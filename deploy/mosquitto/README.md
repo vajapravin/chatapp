@@ -12,9 +12,9 @@ This directory configures **Eclipse Mosquitto 2.x** with the **`mosquitto-go-aut
 - **Strict Authentication**: `allow_anonymous false`. All client connections require valid credentials.
 - **Dynamic Auth Backend**:
   - Uses `go-auth.so` configured with the `http` backend.
-  - Queries `api:8000` via HTTP POST:
-    - User authentication: `POST http://api:8000/v1/auth/mqtt/user`
-    - ACL permission check: `POST http://api:8000/v1/auth/mqtt/acl`
+  - Queries `api:8001` via HTTP POST:
+    - User authentication: `POST http://api:8001/v1/auth/mqtt/user`
+    - ACL permission check: `POST http://api:8001/v1/auth/mqtt/acl`
 
 ---
 

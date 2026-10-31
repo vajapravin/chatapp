@@ -11,7 +11,7 @@ Executed automatically by the official PostgreSQL entrypoint on first volume ini
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 ```
 
-All table definitions, indices, and partitions are managed via **Alembic** migrations located under [`api/alembic/versions/`](file:///Users/pravinmacm4/Documents/aml/chatapp/api/alembic/versions).
+All table definitions, indices, and partitions are managed via **Alembic** migrations located under [`api/alembic/versions/`](../../api/alembic/versions).
 
 ---
 

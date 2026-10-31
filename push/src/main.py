@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(na
 logger = logging.getLogger("chatapp.push")
 
 NATS_URL = os.getenv("NATS_URL", "nats://nats:4222")
-DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://chatapp:chatapp_secret@postgres:5432/chatapp")
+DATABASE_URL = os.getenv("DATABASE_URL", "postgresql+asyncpg://chatapp:chatapp_secret@postgres:5435/chatapp")
 VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "")
 VAPID_CLAIMS = {
     "sub": os.getenv("VAPID_SUB", "mailto:admin@vajapravin.me"),
