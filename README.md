@@ -26,17 +26,17 @@ graph TD
     UserA -->|WSS / HTTPS| CFEdge
     UserB -->|WSS / HTTPS| CFEdge
     CFEdge -->|Tunnel Connection| ExtCF
-    ExtCF -->|http://localhost:3000| Web["Web Client (Port 3000)"]
-    ExtCF -->|http://localhost:8001| API
-    ExtCF -->|http://localhost:9001| Mosq
+    ExtCF -->|"http://localhost:3000"| Web["Web Client (Port 3000)"]
+    ExtCF -->|"http://localhost:8001"| API
+    ExtCF -->|"http://localhost:9001"| Mosq
 
-    Mosq -->|out/#| Router
+    Mosq -->|"out/#"| Router
     Router -->|Store| PG
-    Router -->|u/{recipient}/inbox| Mosq
+    Router -->|"u/{recipient}/inbox"| Mosq
     Router -->|Notify| NATS
 
     NATS --> Push
-    Mosq -->|p/# LWT| Presence
+    Mosq -->|"p/# LWT"| Presence
     Presence <--> Redis
     API <--> PG
     API <--> Redis
