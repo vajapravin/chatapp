@@ -1,6 +1,6 @@
 import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, status
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 import ulid
 
@@ -92,7 +92,21 @@ async def init_keys(
     else:
         ik.public_key = req.identity_key
 
-    # 2. Add Signed Prekey
+    # 2. Clean up previous prekeys for clean re-initialization
+    await db.execute(
+        delete(SignedPrekey).where(
+            SignedPrekey.user_id == user.id,
+            SignedPrekey.device_id == device_id,
+        )
+    )
+    await db.execute(
+        delete(OneTimePrekey).where(
+            OneTimePrekey.user_id == user.id,
+            OneTimePrekey.device_id == device_id,
+        )
+    )
+
+    # 3. Add Signed Prekey
     spk = SignedPrekey(
         id=str(ulid.new()),
         user_id=user.id,
@@ -103,7 +117,7 @@ async def init_keys(
     )
     db.add(spk)
 
-    # 3. Add One-Time Prekeys
+    # 4. Add One-Time Prekeys
     for opk_data in req.one_time_prekeys:
         opk = OneTimePrekey(
             id=str(ulid.new()),
