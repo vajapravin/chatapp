@@ -1,6 +1,6 @@
 # Chatapp — Zero-Knowledge E2EE Messenger
 
-A production-grade, self-hosted, end-to-end encrypted messaging system designed to run on a **Synology DS425+ NAS** (2 GB RAM) behind a **Cloudflare Tunnel** with zero port forwarding on `vajapravin.me`.
+A production-grade, self-hosted, end-to-end encrypted messaging system designed to run on a **Synology DS425+ NAS** (2 GB RAM) integrated with an existing **Cloudflare Tunnel** container on `vajapravin.me`.
 
 Built with zero paid external services, complete user data sovereignty, Signal Protocol (X3DH + Double Ratchet) encryption, and an active runtime memory footprint of **< 300 MiB RAM**.
 
@@ -12,7 +12,8 @@ Built with zero paid external services, complete user data sovereignty, Signal P
 graph TD
     UserA["Client A (Web / React 18)"]
     UserB["Client B (Web / React 18)"]
-    CF["Cloudflare Tunnel (vajapravin.me)"]
+    CFEdge["Cloudflare Edge (*.vajapravin.me)"]
+    ExtCF["Existing cloudflared Container (NAS Host)"]
     Mosq["Mosquitto MQTT Broker (Go Auth)"]
     API["FastAPI REST & Auth (Port 8000)"]
     Router["Router Worker (Asyncio / MQTT)"]
@@ -22,10 +23,12 @@ graph TD
     Redis[("Redis 7 (Presence / Auth)")]
     NATS[("NATS JetStream (Events)")]
 
-    UserA -->|WSS / HTTPS| CF
-    UserB -->|WSS / HTTPS| CF
-    CF --> Mosq
-    CF --> API
+    UserA -->|WSS / HTTPS| CFEdge
+    UserB -->|WSS / HTTPS| CFEdge
+    CFEdge -->|Tunnel Connection| ExtCF
+    ExtCF -->|http://localhost:3000| Web["Web Client (Port 3000)"]
+    ExtCF -->|http://localhost:8001| API
+    ExtCF -->|http://localhost:9001| Mosq
 
     Mosq -->|out/#| Router
     Router -->|Store| PG
@@ -48,7 +51,7 @@ graph TD
 - **Double Ratchet Messaging**: Bidirectional per-message forward secrecy with server acknowledgments, delivery receipts (✓✓), and read receipts (blue ✓✓).
 - **Real-Time Presence & Typing**: Sub-second online status tracking and typing indicators via MQTT Last Will and Testament (LWT) and Redis TTL caching.
 - **WhatsApp Web-Grade Interface**: Full responsive SPA with conversation list, message bubble stream, quote replies, emoji reactions, message editing (15-min window), and delete for me/everyone.
-- **Strict Resource Budget**: Built for hardware-constrained NAS targets. The full 10-container stack consumes **~290 MiB active RAM**, well under the **1.4 GB total memory ceiling**.
+- **Strict Resource Budget**: Built for hardware-constrained NAS targets. The streamlined 9-container stack consumes **~294 MiB active RAM**, well under the **1.4 GB total memory ceiling**.
 
 ---
 
@@ -63,7 +66,7 @@ graph TD
 | [`push/`](file:///Users/pravinmacm4/Documents/aml/chatapp/push) | Offline Web Push worker consuming NATS events to dispatch VAPID notifications | [push/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/push/README.md) |
 | [`shared/`](file:///Users/pravinmacm4/Documents/aml/chatapp/shared) | Shared Python library (`chatapp_shared`) containing Pydantic schemas, auth helpers, and OTP providers | [shared/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/shared/README.md) |
 | [`proto/`](file:///Users/pravinmacm4/Documents/aml/chatapp/proto) | Protocol Buffers definitions (`envelope.proto`) and wire format documentation | [proto/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/proto/README.md) |
-| [`deploy/`](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy) | Infrastructure configs: Mosquitto, Cloudflare Tunnel, PostgreSQL, and Synology NAS deployment | [deploy/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/README.md) |
+| [`deploy/`](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy) | Infrastructure configs: Mosquitto, PostgreSQL, and Synology NAS deployment | [deploy/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/deploy/README.md) |
 | [`docs/`](file:///Users/pravinmacm4/Documents/aml/chatapp/docs) | System requirements, specifications, and phase verification documents | [docs/README.md](file:///Users/pravinmacm4/Documents/aml/chatapp/docs/README.md) |
 
 ---
@@ -72,7 +75,7 @@ graph TD
 
 The self-hosted deployment on the Synology DS425+ (Intel Celeron J4125, 2 GB physical RAM) has a hard cap of **≤ 1.4 GB total RAM**.
 
-Actual measured memory usage across all 10 running containers:
+Actual measured memory usage across all 9 running containers:
 
 | Container Name | Service Role | Configured Limit | Measured Active RAM |
 |---|---|---|---|
@@ -85,11 +88,10 @@ Actual measured memory usage across all 10 running containers:
 | `chatapp-postgres` | PostgreSQL 16 (Envelopes & Keys) | 256 MiB | **~28 MiB** |
 | `chatapp-redis` | Redis 7 (Presence & Sessions) | 96 MiB | **~10 MiB** |
 | `chatapp-nats` | NATS 2.10 JetStream | 64 MiB | **~10 MiB** |
-| `chatapp-cloudflared` | Cloudflare Tunnel Agent | 64 MiB | **~0.5 MiB** |
-| **Combined Total** | | **1,008 MiB** | **~294.5 MiB** |
+| **Combined 9-Container Stack** | | **944 MiB** | **~294 MiB** |
 
 > [!NOTE]
-> Active RAM is ~294 MiB, consuming less than **21% of the 1.4 GB target limit**, leaving DSM with over 1.7 GB of free RAM.
+> Active RAM is ~294 MiB, consuming less than **21% of the 1.4 GB target limit**, leaving DSM with over 1.7 GB of free RAM for system tasks and your existing NAS `cloudflared` container.
 
 ---
 

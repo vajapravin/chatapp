@@ -89,9 +89,8 @@ Fully verified against live Docker stack:
 | `chatapp-api` | FastAPI Backend | 71.1 MiB | 192 MiB |
 | `chatapp-push` | Push Notification Worker | 55.3 MiB | 64 MiB |
 | `chatapp-nats` | NATS JetStream | 9.7 MiB | 64 MiB |
-| `chatapp-cloudflared` | Cloudflare Tunnel | 0.5 MiB | 64 MiB |
 | `chatapp-postgres` | PostgreSQL 16 | 26.4 MiB | 256 MiB |
 | `chatapp-redis` | Redis 7 | 9.6 MiB | 96 MiB |
-| **Combined Active RAM** | | **~288.7 MiB** | **1,008 MiB limit** |
+| **Combined Active RAM** | | **~288.2 MiB** | **944 MiB limit** |
 
-All services operating under 289 MiB active RAM (< 21% of the 1.4 GB DS425+ NAS budget).
+All 9 services operating under 289 MiB active RAM (< 21% of the 1.4 GB DS425+ NAS budget). Ingress is handled externally by the user's pre-existing `cloudflared` container on the NAS.

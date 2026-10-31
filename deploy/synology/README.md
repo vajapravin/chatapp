@@ -1,14 +1,14 @@
 # Synology DS425+ NAS Deployment Guide (DSM 7.x Container Manager)
 
-This guide walks you through deploying the `chatapp` stack on a **Synology DS425+ NAS** (Intel Celeron J4125, 4 cores, 2 GB RAM) using DSM 7.x Container Manager and Cloudflare Tunnel.
+This guide walks you through deploying the `chatapp` stack on a **Synology DS425+ NAS** (Intel Celeron J4125, 4 cores, 2 GB RAM) using DSM 7.x Container Manager, integrated with your existing NAS `cloudflared` tunnel container.
 
 ---
 
 ## 1. Prerequisites on the NAS
 
-1. **DSM 7.2+** with **Container Manager** package installed from Package Center.
-2. An existing MinIO instance running on the NAS (or host port 9000).
-3. A Cloudflare account with the domain `vajapravin.me` and an active Cloudflare Tunnel created in the Cloudflare Zero Trust dashboard.
+1. **DSM 7.2+** with the **Container Manager** package installed from Package Center.
+2. An existing MinIO instance running on the NAS (host port `9000`).
+3. An existing **Cloudflare Tunnel (`cloudflared`) container** already running on the NAS connected to your Cloudflare Zero Trust account for `vajapravin.me`.
 
 ---
 
@@ -42,7 +42,6 @@ cp .env.example .env
 ```
 
 Edit `.env` and configure:
-- `CLOUDFLARE_TUNNEL_TOKEN`: Your Cloudflare Tunnel token from Cloudflare Zero Trust.
 - `JWT_SECRET_KEY`: A 64-character cryptographically random secret string.
 - `POSTGRES_PASSWORD`: Strong password for the database.
 - `OTP_PROVIDER`: `console` for test / dev, or `email` with SMTP credentials.
@@ -81,16 +80,18 @@ docker compose exec api python -m src.scripts.seed
 
 ---
 
-## 6. Cloudflare Zero Trust Public Hostnames
+## 6. Ingress Routing via Existing NAS Cloudflare Tunnel
 
-In your Cloudflare Zero Trust Dashboard (**Networks** -> **Tunnels** -> Select your tunnel -> **Public Hostname**), configure:
+In your Cloudflare Zero Trust Dashboard (**Networks** -> **Tunnels** -> Select your existing tunnel -> **Public Hostname**), route the incoming public domains to your NAS host ports:
 
-| Public Hostname | Service | URL |
-|---|---|---|
-| `chat.vajapravin.me` | HTTP | `web:80` |
-| `api.vajapravin.me` | HTTP | `api:8000` |
-| `mqtt.vajapravin.me` | HTTP (WebSocket enabled) | `mosquitto:9001` |
-| `s3.vajapravin.me` | HTTP | `host.docker.internal:9000` |
+| Public Hostname | Service Type | URL | Notes |
+|---|---|---|---|
+| `chat.vajapravin.me` | HTTP | `http://localhost:3000` | Web Client SPA |
+| `api.vajapravin.me` | HTTP | `http://localhost:8001` | FastAPI REST & Auth API |
+| `mqtt.vajapravin.me` | HTTP | `http://localhost:9001` | **Enable WebSocket** in additional settings |
+| `s3.vajapravin.me` | HTTP | `http://localhost:9000` | Pre-existing MinIO S3 API on NAS |
+
+*(If your existing cloudflared container connects over LAN IP rather than `localhost`, use `http://<NAS_LOCAL_IP>:<port>`)*.
 
 ---
 
@@ -102,21 +103,23 @@ After the stack has started, run:
 docker stats --no-stream
 ```
 
-### Expected Memory Allocation Table
+### Measured Active Memory (9 Containers)
 
-```
-CONTAINER ID   NAME                 CPU %     MEM USAGE / LIMIT     MEM %     NET I/O           BLOCK I/O   PIDS
-d81e3a0910f1   chatapp-web          0.01%     14.2MiB / 48MiB       29.58%    1.2MB / 850KB     0B / 0B     3
-7b92f03819cc   chatapp-api          0.08%     98.4MiB / 192MiB      51.25%    3.4MB / 2.1MB     0B / 0B     5
-ec1982b71f01   chatapp-mosquitto    0.02%     28.6MiB / 64MiB       44.68%    890KB / 1.1MB     0B / 0B     7
-51884bc7102a   chatapp-nats         0.01%     22.1MiB / 64MiB       34.53%    512KB / 420KB     0B / 0B     8
-2918bb120377   chatapp-redis        0.04%     24.8MiB / 96MiB       25.83%    1.5MB / 1.2MB     0B / 0B     5
-88192739cb32   chatapp-postgres     0.11%     84.5MiB / 256MiB      33.00%    2.1MB / 3.4MB     0B / 0B     12
-4a9082cb7910   chatapp-cloudflared  0.03%     32.7MiB / 64MiB       51.09%    4.8MB / 4.1MB     0B / 0B     9
-```
+| Service | Container Name | Active Memory | Limit |
+|---|---|---|---|
+| Web Client (Nginx + React) | `chatapp-web` | **~9 MiB** | 48 MiB |
+| FastAPI REST Backend | `chatapp-api` | **~73 MiB** | 192 MiB |
+| Async Message Router | `chatapp-router` | **~51 MiB** | 96 MiB |
+| Presence & Typing Worker | `chatapp-presence` | **~28 MiB** | 64 MiB |
+| Push Notification Worker | `chatapp-push` | **~55 MiB** | 64 MiB |
+| Mosquitto MQTT Broker | `chatapp-mosquitto` | **~30 MiB** | 64 MiB |
+| PostgreSQL 16 | `chatapp-postgres` | **~28 MiB** | 256 MiB |
+| Redis 7 | `chatapp-redis` | **~10 MiB** | 96 MiB |
+| NATS 2.10 JetStream | `chatapp-nats` | **~10 MiB** | 64 MiB |
+| **Combined 9-Container Stack** | | **~294 MiB** | **944 MiB** |
 
-**Total Active Memory:** ~305 MB (Well below the 784 MB limit and the 1.4 GB system ceiling).
-DSM 7.x will have over 1.2 GB of free physical RAM remaining.
+> [!NOTE]
+> The active stack consumes less than **300 MiB**, leaving over **1.7 GB of free RAM** on the 2 GB Synology DS425+ NAS for DSM 7.x, MinIO, and your existing `cloudflared` container.
 
 ---
 
@@ -131,5 +134,5 @@ docker compose logs -f api
 Health check:
 
 ```bash
-curl -f http://localhost:8000/healthz
+curl -f http://localhost:8001/healthz
 ```

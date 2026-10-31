@@ -190,19 +190,6 @@ services:
     networks:
       - chatnet
 
-  cloudflared:
-    build:
-      context: deploy/cloudflared
-      dockerfile: Dockerfile
-    container_name: chatapp-cloudflared
-    profiles: ["core", "full"]
-    mem_limit: 64m
-    restart: unless-stopped
-    environment:
-      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN:-}
-    networks:
-      - chatnet
-
 networks:
   chatnet:
     driver: bridge
