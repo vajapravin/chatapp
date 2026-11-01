@@ -44,7 +44,7 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres_db:5432/${POSTGRES_DB:-chatapp}
       REDIS_URL: redis://redis:6380/0
       NATS_URL: nats://nats:4222
     ports:
@@ -114,7 +114,7 @@ services:
       MQTT_USER: router
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-insecure-secret-key-change-in-production-12345678}
       NATS_URL: nats://nats:4222
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres_db:5432/${POSTGRES_DB:-chatapp}
       REDIS_URL: redis://redis:6380/0
     depends_on:
       mosquitto:
@@ -154,7 +154,7 @@ services:
     mem_limit: 64m
     environment:
       NATS_URL: nats://nats:4222
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres_db:5432/${POSTGRES_DB:-chatapp}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
     depends_on:
       nats:
