@@ -5,15 +5,23 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
+from .middleware.rate_limit import SlidingWindowRateLimiter
 from .routes import (
+    admin_router,
     auth_router,
+    backups_router,
+    blocks_reports_router,
     calls_router,
+    devices_router,
     groups_router,
     health_router,
     keys_router,
     media_router,
+    passkeys_router,
     presence_router,
+    privacy_router,
     push_router,
+    two_step_router,
     users_router,
 )
 
@@ -47,11 +55,24 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Sliding Window Rate Limiter
+app.add_middleware(
+    SlidingWindowRateLimiter,
+    redis_url=settings.REDIS_URL,
+)
+
 # Include Routers
 app.include_router(health_router)
 app.include_router(auth_router)
+app.include_router(two_step_router)
+app.include_router(passkeys_router)
+app.include_router(blocks_reports_router)
 app.include_router(users_router)
 app.include_router(keys_router)
+app.include_router(privacy_router)
+app.include_router(admin_router)
+app.include_router(devices_router)
+app.include_router(backups_router)
 app.include_router(groups_router)
 app.include_router(media_router)
 app.include_router(calls_router)

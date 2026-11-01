@@ -132,7 +132,7 @@ class LocalDB {
 
   private openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open("chatapp_local_v3", 3);
+      const request = indexedDB.open("chatapp_local_v4", 4);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains("chats")) {
@@ -155,6 +155,15 @@ class LocalDB {
           callStore.createIndex("peerId", "peerId", { unique: false });
           callStore.createIndex("startTime", "startTime", { unique: false });
           callStore.createIndex("status", "status", { unique: false });
+        }
+        if (!db.objectStoreNames.contains("locked_chats")) {
+          db.createObjectStore("locked_chats", { keyPath: "chatId" });
+        }
+        if (!db.objectStoreNames.contains("verified_safety_numbers")) {
+          db.createObjectStore("verified_safety_numbers", { keyPath: "peerUserId" });
+        }
+        if (!db.objectStoreNames.contains("security_settings")) {
+          db.createObjectStore("security_settings", { keyPath: "key" });
         }
       };
       request.onsuccess = () => resolve(request.result);
@@ -383,6 +392,138 @@ class LocalDB {
         }
       };
       req.onerror = () => resolve(0);
+    });
+  }
+
+  // --- Locked Chats ---
+  async lockChat(chatId: string): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("locked_chats", "readwrite");
+      tx.objectStore("locked_chats").put({ chatId, lockedAt: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async unlockChat(chatId: string): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("locked_chats", "readwrite");
+      tx.objectStore("locked_chats").delete(chatId);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async getLockedChatIds(): Promise<string[]> {
+    if (!this.dbPromise) return [];
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("locked_chats", "readonly");
+      const req = tx.objectStore("locked_chats").getAll();
+      req.onsuccess = () => resolve((req.result || []).map((r: any) => r.chatId));
+      req.onerror = () => resolve([]);
+    });
+  }
+
+  // --- Safety Numbers ---
+  async saveVerifiedSafetyNumber(
+    peerUserId: string,
+    identityKey: string,
+    safetyNumber: string,
+    isVerified: boolean
+  ): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("verified_safety_numbers", "readwrite");
+      tx.objectStore("verified_safety_numbers").put({
+        peerUserId,
+        identityKey,
+        safetyNumber,
+        isVerified,
+        updatedAt: Date.now(),
+      });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async getVerifiedSafetyNumber(peerUserId: string): Promise<{
+    peerUserId: string;
+    identityKey: string;
+    safetyNumber: string;
+    isVerified: boolean;
+  } | null> {
+    if (!this.dbPromise) return null;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("verified_safety_numbers", "readonly");
+      const req = tx.objectStore("verified_safety_numbers").get(peerUserId);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  // --- Security Settings ---
+  async saveSecuritySetting(key: string, value: any): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("security_settings", "readwrite");
+      tx.objectStore("security_settings").put({ key, value });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async getSecuritySetting(key: string): Promise<any> {
+    if (!this.dbPromise) return null;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("security_settings", "readonly");
+      const req = tx.objectStore("security_settings").get(key);
+      req.onsuccess = () => resolve(req.result?.value ?? null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  // --- Backup & Restore ---
+  async getAllMessages(): Promise<MessageItem[]> {
+    if (!this.dbPromise) return [];
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("messages", "readonly");
+      const req = tx.objectStore("messages").getAll();
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => resolve([]);
+    });
+  }
+
+  async restoreChatsAndMessages(
+    chats: ChatItem[],
+    messages: MessageItem[],
+    callLogs?: CallLogItem[]
+  ): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction(["chats", "messages", "call_logs"], "readwrite");
+      const chatStore = tx.objectStore("chats");
+      const msgStore = tx.objectStore("messages");
+      const callStore = tx.objectStore("call_logs");
+
+      chats.forEach((c) => chatStore.put(c));
+      messages.forEach((m) => msgStore.put(m));
+      if (callLogs) {
+        callLogs.forEach((l) => callStore.put(l));
+      }
+
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
     });
   }
 }

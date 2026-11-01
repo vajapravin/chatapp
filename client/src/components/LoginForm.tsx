@@ -4,9 +4,10 @@ import { requestOtp } from "../services/api";
 
 interface LoginFormProps {
   onOtpRequested: (phone: string, email: string) => void;
+  onLinkCompanion?: () => void;
 }
 
-export const LoginForm: React.FC<LoginFormProps> = ({ onOtpRequested }) => {
+export const LoginForm: React.FC<LoginFormProps> = ({ onOtpRequested, onLinkCompanion }) => {
   const [phoneNumber, setPhoneNumber] = useState("+10000000001");
   const [email, setEmail] = useState("alice@example.com");
   const [loading, setLoading] = useState(false);
@@ -91,6 +92,16 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOtpRequested }) => {
             </>
           )}
         </button>
+
+        {onLinkCompanion && (
+          <button
+            type="button"
+            onClick={onLinkCompanion}
+            className="w-full py-3 px-4 bg-[#111b21] hover:bg-[#182229] border border-[#2a3942] text-[#00a884] font-medium rounded-xl flex items-center justify-center gap-2 text-xs transition"
+          >
+            <span>Link as companion device with QR code</span>
+          </button>
+        )}
       </form>
 
       <div className="mt-8 pt-6 border-t border-[#2a3942] text-center">

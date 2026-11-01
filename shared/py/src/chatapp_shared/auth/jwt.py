@@ -10,6 +10,7 @@ def create_access_token(
     secret_key: str,
     expires_delta: timedelta | None = None,
     algorithm: str = "HS256",
+    scope: str | None = None,
 ) -> str:
     """Mint a signed JWT access token for user and device."""
     now = datetime.now(UTC)
@@ -22,6 +23,8 @@ def create_access_token(
         "exp": int(expire.timestamp()),
         "type": "access",
     }
+    if scope:
+        payload["scope"] = scope
     return jwt.encode(payload, secret_key, algorithm=algorithm)
 
 

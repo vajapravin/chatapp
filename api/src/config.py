@@ -32,7 +32,8 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = False
     SMTP_STARTTLS: bool = True
 
-    # S3 Object Storage (MinIO / AWS S3)
+    # S3 Object Storage (MinIO / AWS S3 / Local)
+    OBJECT_STORE_PROVIDER: Literal["s3", "local"] = "local"
     S3_ENDPOINT: str = ""
     S3_ACCESS_KEY: str = ""
     S3_SECRET_KEY: str = ""

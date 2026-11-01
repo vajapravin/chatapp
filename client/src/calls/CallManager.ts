@@ -1,6 +1,9 @@
 import { ulid } from "ulidx";
 import { useAuthStore } from "../store/authStore";
 import { CallType, useCallStore } from "../store/callStore";
+import { usePrivacyStore } from "../store/privacyStore";
+import { useChatStore } from "../store/chatStore";
+import { localDB } from "../storage/db";
 import { getMqttTransport } from "../transport/mqttClient";
 import { ringtoneSynth } from "./RingtoneSynthesizer";
 import { WebRtcPeer } from "./WebRtcPeer";
@@ -368,6 +371,34 @@ export class CallManager {
 
     switch (signal.action) {
       case "offer": {
+        // Check Silence Unknown Callers privacy setting
+        const privacy = usePrivacyStore.getState().privacySettings;
+        if (privacy.silence_unknown_callers) {
+          const chats = useChatStore.getState().chats;
+          const isKnown = chats.some((c) => c.peerUserId === senderId || c.id === senderId);
+          if (!isKnown) {
+            localDB.saveCallLog({
+              id: ulid(),
+              peerId: senderId,
+              peerDisplayName: signal.peerName || "Unknown Caller",
+              direction: "incoming",
+              callType: signal.callType,
+              status: "missed",
+              startTime: Date.now(),
+              durationSeconds: 0,
+            });
+            this.sendSignal(senderId, {
+              type: "call_signal",
+              callId: signal.callId,
+              callType: signal.callType,
+              action: "busy",
+              groupId: signal.groupId,
+              timestamp: Date.now(),
+            });
+            return;
+          }
+        }
+
         // If busy on another call
         if (currentCallState !== "idle" && currentCallId !== signal.callId) {
           this.sendSignal(senderId, {

@@ -25,6 +25,10 @@ export class MqttTransport {
     this.connect();
   }
 
+  getSignalAdapter(): SignalAdapter | null {
+    return this.signalAdapter;
+  }
+
   private connect() {
     const token = useAuthStore.getState().accessToken;
     if (!token) return;
@@ -384,6 +388,7 @@ export class MqttTransport {
       contact?: ContactData;
       event?: EventData;
       viewOnce?: boolean;
+      forwardCount?: number;
       disappearingAfter?: number;
       replyTo?: { id: string; text: string; senderId: string };
     }
@@ -407,6 +412,7 @@ export class MqttTransport {
       contact: richData?.contact,
       event: richData?.event,
       viewOnce: richData?.viewOnce,
+      forwardCount: richData?.forwardCount || 0,
       disappearingAfter: richData?.disappearingAfter,
       timestamp: now,
       senderPhone: useAuthStore.getState().user?.phone_number,
@@ -448,6 +454,7 @@ export class MqttTransport {
       event: richData?.event,
       viewOnce: richData?.viewOnce,
       viewed: false,
+      forwardCount: richData?.forwardCount || 0,
       disappearingAfter: richData?.disappearingAfter,
     };
 
@@ -508,6 +515,7 @@ export class MqttTransport {
       contact?: ContactData;
       event?: EventData;
       viewOnce?: boolean;
+      forwardCount?: number;
       disappearingAfter?: number;
       replyTo?: { id: string; text: string; senderId: string };
     }
@@ -563,6 +571,7 @@ export class MqttTransport {
       contact: richData?.contact,
       event: richData?.event,
       viewOnce: richData?.viewOnce,
+      forwardCount: richData?.forwardCount || 0,
       disappearingAfter: richData?.disappearingAfter || group.disappearingMode,
       timestamp: now,
       groupName: group.peerDisplayName,
@@ -610,6 +619,7 @@ export class MqttTransport {
       event: richData?.event,
       viewOnce: richData?.viewOnce,
       viewed: false,
+      forwardCount: richData?.forwardCount || 0,
       disappearingAfter: richData?.disappearingAfter || group.disappearingMode,
     };
 

@@ -5,6 +5,7 @@ import signal
 import sys
 import aiomqtt
 import nats
+import redis.asyncio as aioredis
 from sqlalchemy import delete, insert, update
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import ulid
@@ -83,6 +84,9 @@ async def run_router():
         logger.info("Connected to NATS bus at %s", settings.NATS_URL)
     except Exception as e:
         logger.warning("Could not immediately connect to NATS (%s); running in MQTT-direct mode", e)
+
+    # Redis connection for block checks
+    redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
 
     # Reconnect loop for Mosquitto
     while True:
@@ -173,6 +177,28 @@ async def run_router():
 
                         # B. Direct 1:1 pairwise envelope
                         else:
+                            # Bi-directional Block Check
+                            is_blocked = False
+                            try:
+                                is_blocked = (
+                                    await redis_client.sismember(f"blocks:{recipient_user}", sender_user)
+                                    or await redis_client.sismember(f"blocks:{sender_user}", recipient_user)
+                                )
+                            except Exception as e:
+                                logger.debug("Error checking block status: %s", e)
+
+                            if is_blocked:
+                                # Ack back to sender to avoid leaking block status, then drop delivery
+                                ack_topic = f"u/{sender_user}/{sender_device}/ack"
+                                ack_payload = json.dumps({
+                                    "id": env_id,
+                                    "status": "server_ack",
+                                    "timestamp": env_data.get("timestamp"),
+                                })
+                                await mqtt_client.publish(ack_topic, payload=ack_payload.encode(), qos=1)
+                                logger.info("Blocked envelope %s between %s and %s", env_id, sender_user, recipient_user)
+                                continue
+
                             try:
                                 async with async_session() as session:
                                     await persist_envelope(session, env_data)
@@ -236,8 +262,18 @@ async def run_router():
 
                     # 3. TYPING indicator (type 3)
                     elif env_type == 3:
-                        typing_topic = f"u/{recipient_user}/{recipient_device}/inbox"
-                        await mqtt_client.publish(typing_topic, payload=payload_bytes, qos=0)
+                        is_blocked = False
+                        try:
+                            is_blocked = (
+                                await redis_client.sismember(f"blocks:{recipient_user}", sender_user)
+                                or await redis_client.sismember(f"blocks:{sender_user}", recipient_user)
+                            )
+                        except Exception:
+                            is_blocked = False
+
+                        if not is_blocked:
+                            typing_topic = f"u/{recipient_user}/{recipient_device}/inbox"
+                            await mqtt_client.publish(typing_topic, payload=payload_bytes, qos=0)
 
         except (aiomqtt.MqttError, Exception) as e:
             logger.warning("MQTT connection lost: %s. Retrying in 3 seconds...", e)

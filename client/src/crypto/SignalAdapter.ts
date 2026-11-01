@@ -52,6 +52,16 @@ export class SignalAdapter {
     return this.deviceId;
   }
 
+  async getLocalIdentityKeyB64(): Promise<string | undefined> {
+    const pair = await this.store.getIdentityKeyPair();
+    if (!pair) return undefined;
+    return arrayBufferToBase64(pair.pubKey);
+  }
+
+  async getPeerIdentityKeyB64(peerUserId: string): Promise<string | undefined> {
+    return this.store.getPeerIdentityKey(peerUserId, 1);
+  }
+
   async init(): Promise<void> {
     const existingIdentity = await this.store.getIdentityKeyPair();
     const existingRegId = await this.store.getLocalRegistrationId();

@@ -5,17 +5,21 @@ import {
   LogOut,
   MessageSquare,
   MessageSquarePlus,
-  MoreVertical,
   Phone,
   Search,
   Shield,
   User as UserIcon,
   Users,
+  Settings as SettingsIcon,
+  ChevronDown,
+  ChevronRight,
+  AlertCircle,
 } from "lucide-react";
 import { fetchCurrentUser } from "../services/api";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
 import { useCallStore } from "../store/callStore";
+import { usePrivacyStore } from "../store/privacyStore";
 import { initMqttTransport, transportInstance } from "../transport/mqttClient";
 import { ConversationView } from "./ConversationView";
 import { NewChatModal } from "./NewChatModal";
@@ -23,6 +27,9 @@ import { NewGroupModal } from "./NewGroupModal";
 import { IncomingCallModal } from "./IncomingCallModal";
 import { ActiveCallModal } from "./ActiveCallModal";
 import { CallHistoryView } from "./CallHistoryView";
+import { SettingsModal } from "./SettingsModal";
+import { AdminModerationModal } from "./AdminModerationModal";
+import { AppLockOverlay } from "./AppLockOverlay";
 
 function formatChatTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -49,7 +56,19 @@ export const ChatListShell: React.FC = () => {
   const [searchFilter, setSearchFilter] = useState("");
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState(false);
+  const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
+  const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
   const [currentTab, setCurrentTab] = useState<"chats" | "calls">("chats");
+
+  const {
+    lockedChatIds,
+    isLockedChatsFolderOpen,
+    setLockedChatsFolderOpen,
+    loadLockedChats,
+    recordActivity,
+    appLock,
+    unlockApp,
+  } = usePrivacyStore();
 
   const { callLogs, loadCallLogs } = useCallStore();
   const missedCount = useMemo(
@@ -59,7 +78,19 @@ export const ChatListShell: React.FC = () => {
 
   useEffect(() => {
     loadCallLogs();
-  }, [loadCallLogs]);
+    loadLockedChats();
+  }, [loadCallLogs, loadLockedChats]);
+
+  // Activity tracking for App Lock auto-lock
+  useEffect(() => {
+    const onActivity = () => recordActivity();
+    window.addEventListener("mousemove", onActivity);
+    window.addEventListener("keydown", onActivity);
+    return () => {
+      window.removeEventListener("mousemove", onActivity);
+      window.removeEventListener("keydown", onActivity);
+    };
+  }, [recordActivity]);
 
   // Fetch user profile on mount
   useEffect(() => {
@@ -91,15 +122,22 @@ export const ChatListShell: React.FC = () => {
   );
 
   const filteredChats = useMemo(() => {
-    if (!searchFilter.trim()) return chats;
+    let list = chats;
+    // Hide locked chats from main view unless viewing locked folder
+    if (!isLockedChatsFolderOpen) {
+      list = list.filter((c) => !lockedChatIds.includes(c.id));
+    } else {
+      list = list.filter((c) => lockedChatIds.includes(c.id));
+    }
+    if (!searchFilter.trim()) return list;
     const q = searchFilter.toLowerCase();
-    return chats.filter(
+    return list.filter(
       (c) =>
         (c.peerDisplayName && c.peerDisplayName.toLowerCase().includes(q)) ||
         c.peerPhoneNumber.includes(q) ||
         c.lastMessageText.toLowerCase().includes(q)
     );
-  }, [chats, searchFilter]);
+  }, [chats, searchFilter, lockedChatIds, isLockedChatsFolderOpen]);
 
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#111b21] text-[#e9edef]">
@@ -146,11 +184,21 @@ export const ChatListShell: React.FC = () => {
               <MessageSquarePlus className="w-5 h-5" />
             </button>
             <button
-              title="Menu"
+              onClick={() => setIsSettingsModalOpen(true)}
+              title="Settings"
               className="p-2 hover:bg-[#374248] rounded-full transition"
             >
-              <MoreVertical className="w-5 h-5" />
+              <SettingsIcon className="w-5 h-5" />
             </button>
+            {(user?.phone_number?.endsWith("000") || (user as any)?.role === "admin") && (
+              <button
+                onClick={() => setIsAdminModalOpen(true)}
+                title="Admin Moderation"
+                className="p-2 hover:bg-[#374248] text-amber-400 rounded-full transition"
+              >
+                <AlertCircle className="w-5 h-5" />
+              </button>
+            )}
             <button
               onClick={logout}
               title="Sign Out"
@@ -209,6 +257,45 @@ export const ChatListShell: React.FC = () => {
                 />
               </div>
             </div>
+
+            {/* Locked Chats Collapsible Banner */}
+            {lockedChatIds.length > 0 && (
+              <div
+                onClick={() => {
+                  if (!isLockedChatsFolderOpen) {
+                    if (appLock.enabled) {
+                      const pin = prompt("Enter PIN to unlock locked chats folder:");
+                      if (pin && unlockApp(pin)) {
+                        setLockedChatsFolderOpen(true);
+                      } else {
+                        alert("Incorrect PIN");
+                      }
+                    } else {
+                      setLockedChatsFolderOpen(true);
+                    }
+                  } else {
+                    setLockedChatsFolderOpen(false);
+                  }
+                }}
+                className="flex items-center justify-between px-4 py-3 bg-[#182229] hover:bg-[#202c33] cursor-pointer border-b border-[#202c33] select-none transition"
+              >
+                <div className="flex items-center gap-3">
+                  <div className="w-9 h-9 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center">
+                    <Lock className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-white">Locked Chats</div>
+                    <div className="text-[10px] text-[#8696a0]">
+                      {lockedChatIds.length} chat{lockedChatIds.length > 1 ? "s" : ""} hidden
+                    </div>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 text-xs text-[#00a884] font-medium">
+                  <span>{isLockedChatsFolderOpen ? "Viewing" : "Unlock"}</span>
+                  {isLockedChatsFolderOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                </div>
+              </div>
+            )}
 
             {/* Chats Scroll Area */}
             <div className="flex-1 overflow-y-auto">
@@ -353,6 +440,25 @@ export const ChatListShell: React.FC = () => {
       {/* Call Modals */}
       <IncomingCallModal />
       <ActiveCallModal />
+
+      {/* Settings Modal */}
+      {isSettingsModalOpen && (
+        <SettingsModal
+          onClose={() => setIsSettingsModalOpen(false)}
+          onOpenAdminModeration={() => {
+            setIsSettingsModalOpen(false);
+            setIsAdminModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Admin Moderation Modal */}
+      {isAdminModalOpen && (
+        <AdminModerationModal onClose={() => setIsAdminModalOpen(false)} />
+      )}
+
+      {/* App Lock Screen Overlay */}
+      <AppLockOverlay />
     </div>
   );
 };

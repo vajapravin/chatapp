@@ -40,6 +40,7 @@ interface MessageBubbleProps {
   onToggleStar?: (msgId: string) => void;
   onOpenViewOnce?: (msgId: string) => void;
   onOpenMedia?: (media: MediaAttachment) => void;
+  onForward?: (msg: MessageItem) => void;
 }
 
 const EMOJI_OPTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
@@ -56,6 +57,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onToggleStar,
   onOpenViewOnce,
   onOpenMedia,
+  onForward,
 }) => {
   const currentUserId = useAuthStore((s) => s.userId) || "";
   const [showReactions, setShowReactions] = useState(false);
@@ -462,6 +464,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         >
           <CornerUpLeft className="w-3.5 h-3.5" />
         </button>
+        {onForward && !message.viewOnce && !message.isDeleted && (
+          <button
+            title="Forward"
+            onClick={() => onForward(message)}
+            className="p-1 hover:text-[#e9edef] rounded transition"
+          >
+            <CornerUpRight className="w-3.5 h-3.5" />
+          </button>
+        )}
         {onTogglePin && (
           <button
             title={message.isPinned ? "Unpin" : "Pin"}

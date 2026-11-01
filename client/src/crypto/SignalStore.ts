@@ -152,6 +152,10 @@ export class SignalStore implements StorageType {
     return this.deserializeKeyPair(raw);
   }
 
+  async getPeerIdentityKey(peerUserId: string, deviceId: number = 1): Promise<string | undefined> {
+    return this.get(`identity_${peerUserId}.${deviceId}`);
+  }
+
   async setIdentityKeyPair(keyPair: KeyPairType): Promise<void> {
     await this.set("identityKey", this.serializeKeyPair(keyPair));
   }

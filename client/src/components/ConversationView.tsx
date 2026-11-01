@@ -1,21 +1,29 @@
 import React, { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import {
+  AlertOctagon,
   ArrowLeft,
+  CheckSquare,
+  CornerUpRight,
   FileText,
   Image as ImageIcon,
   Info,
   Lock,
+  LockKeyhole,
   Mic,
   MoreVertical,
   Paperclip,
   Phone,
   Pin,
   Send,
+  ShieldCheck,
   Smile,
   Sparkles,
+  Square,
+  Unlock,
   User as UserIcon,
   Users,
+  UserX,
   Video,
   X,
 } from "lucide-react";
@@ -30,6 +38,7 @@ import {
 } from "../storage/db";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
+import { usePrivacyStore } from "../store/privacyStore";
 import { getMqttTransport } from "../transport/mqttClient";
 import { MessageBubble } from "./MessageBubble";
 import { GroupInfoDrawer } from "./GroupInfoDrawer";
@@ -38,6 +47,8 @@ import { MediaPreviewModal } from "./MediaPreviewModal";
 import { MediaLightbox } from "./MediaLightbox";
 import { VoiceNoteRecorder } from "./VoiceNoteRecorder";
 import { StickerGifPicker } from "./StickerGifPicker";
+import { SafetyNumberModal } from "./SafetyNumberModal";
+import { ReportUserModal } from "./ReportUserModal";
 import { MediaUploadManager } from "../media/MediaUploadManager";
 import { callManager } from "../calls/CallManager";
 
@@ -69,11 +80,28 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
   const [activeLightboxMedia, setActiveLightboxMedia] = useState<MediaAttachment | null>(null);
   const [isLightboxOpen, setIsLightboxOpen] = useState(false);
 
+  // Phase 6 Privacy & Security State
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const [showSafetyModal, setShowSafetyModal] = useState(false);
+  const [showReportModal, setShowReportModal] = useState(false);
+  const [forwardCandidate, setForwardCandidate] = useState<MessageItem | null>(null);
+  const [showForwardModal, setShowForwardModal] = useState(false);
+  const [selectedForwardChatIds, setSelectedForwardChatIds] = useState<string[]>([]);
+  const [myIdentityKeyB64, setMyIdentityKeyB64] = useState("");
+  const [peerIdentityKeyB64, setPeerIdentityKeyB64] = useState("");
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<any>(null);
   const fileInputMediaRef = useRef<HTMLInputElement>(null);
   const fileInputDocRef = useRef<HTMLInputElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+
+  const allChats = useChatStore((s) => s.chats);
+  const { lockedChatIds, lockChat, unlockChat, blockedUsers, blockUser, unblockUser } = usePrivacyStore();
+
+  const isChatLocked = lockedChatIds.includes(chat.id);
+  const isPeerBlocked = !chat.isGroup && blockedUsers.some((b) => b.blocked_user_id === chat.peerUserId);
 
   const isPeerOnline = presence[chat.id]?.isOnline;
   const peerLastSeen = presence[chat.id]?.lastSeen;
@@ -93,6 +121,9 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
     const handleClickOutside = (e: MouseEvent) => {
       if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
         setShowAttachMenu(false);
+      }
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -431,6 +462,124 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
     setDeleteCandidate(null);
   };
 
+  const handleOpenSafetyNumber = async () => {
+    setShowMoreMenu(false);
+    try {
+      const transport = getMqttTransport();
+      const adapter = transport?.getSignalAdapter();
+      if (!adapter) return;
+      const myB64 = await adapter.getLocalIdentityKeyB64();
+      if (!myB64) return;
+      setMyIdentityKeyB64(myB64);
+
+      let peerB64 = await adapter.getPeerIdentityKeyB64(chat.peerUserId);
+      if (!peerB64) {
+        const token = useAuthStore.getState().accessToken;
+        const res = await fetch(`/v1/keys/${chat.peerUserId}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const b = await res.json();
+          const d1 = b.devices?.find((d: any) => d.device_id === 1);
+          if (d1) peerB64 = d1.identity_key;
+        }
+      }
+      if (peerB64) {
+        setPeerIdentityKeyB64(peerB64);
+        setShowSafetyModal(true);
+      }
+    } catch (err) {
+      console.error("Failed to load safety number keys:", err);
+    }
+  };
+
+  const handleToggleLockChat = async () => {
+    setShowMoreMenu(false);
+    if (isChatLocked) {
+      await unlockChat(chat.id);
+    } else {
+      await lockChat(chat.id);
+    }
+  };
+
+  const handleToggleBlockUser = async () => {
+    setShowMoreMenu(false);
+    if (isPeerBlocked) {
+      await unblockUser(chat.peerUserId);
+    } else {
+      if (
+        window.confirm(
+          `Block ${chat.peerDisplayName || chat.peerPhoneNumber || "this contact"}? Blocked contacts cannot call or send you messages.`
+        )
+      ) {
+        await blockUser(chat.peerUserId);
+      }
+    }
+  };
+
+  const handleForwardCandidate = (msg: MessageItem) => {
+    setForwardCandidate(msg);
+    setSelectedForwardChatIds([]);
+    setShowForwardModal(true);
+  };
+
+  const toggleSelectForwardChat = (chatId: string) => {
+    const isFrequent = (forwardCandidate?.forwardCount || 0) >= 5;
+    const maxSelectable = isFrequent ? 1 : 5;
+
+    if (selectedForwardChatIds.includes(chatId)) {
+      setSelectedForwardChatIds(selectedForwardChatIds.filter((id) => id !== chatId));
+    } else {
+      if (selectedForwardChatIds.length >= maxSelectable) return;
+      setSelectedForwardChatIds([...selectedForwardChatIds, chatId]);
+    }
+  };
+
+  const handleSendForward = async () => {
+    if (!forwardCandidate || selectedForwardChatIds.length === 0) return;
+    const transport = getMqttTransport();
+    if (!transport) return;
+
+    const targets = allChats.filter((c) => selectedForwardChatIds.includes(c.id));
+    const nextForwardCount = (forwardCandidate.forwardCount || 0) + 1;
+
+    for (const target of targets) {
+      if (target.isGroup) {
+        await transport.sendGroupMessage(target, forwardCandidate.text || "", {
+          messageType: forwardCandidate.messageType,
+          media: forwardCandidate.media,
+          poll: forwardCandidate.poll,
+          location: forwardCandidate.location,
+          contact: forwardCandidate.contact,
+          event: forwardCandidate.event,
+          forwardCount: nextForwardCount,
+        });
+      } else {
+        await transport.sendMessage(
+          {
+            id: target.id,
+            phoneNumber: target.peerPhoneNumber,
+            displayName: target.peerDisplayName,
+          },
+          forwardCandidate.text || "",
+          {
+            messageType: forwardCandidate.messageType,
+            media: forwardCandidate.media,
+            poll: forwardCandidate.poll,
+            location: forwardCandidate.location,
+            contact: forwardCandidate.contact,
+            event: forwardCandidate.event,
+            forwardCount: nextForwardCount,
+          }
+        );
+      }
+    }
+
+    setShowForwardModal(false);
+    setForwardCandidate(null);
+    setSelectedForwardChatIds([]);
+  };
+
   return (
     <div
       onDragOver={handleDragOver}
@@ -558,9 +707,67 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
           >
             <Phone className="w-5 h-5" />
           </button>
-          <button className="p-2 hover:bg-[#374248] rounded-full transition">
-            <MoreVertical className="w-5 h-5" />
-          </button>
+          <div className="relative" ref={moreMenuRef}>
+            <button
+              onClick={() => setShowMoreMenu(!showMoreMenu)}
+              title="More options"
+              className={`p-2 rounded-full transition ${showMoreMenu ? "text-white bg-[#374248]" : "hover:bg-[#374248]"}`}
+            >
+              <MoreVertical className="w-5 h-5" />
+            </button>
+
+            {showMoreMenu && (
+              <div className="absolute right-0 top-12 z-50 bg-[#202c33] border border-[#2a3942] rounded-2xl py-2 px-1 w-56 shadow-2xl flex flex-col gap-0.5 animate-in fade-in zoom-in-95 duration-100">
+                {!chat.isGroup && (
+                  <button
+                    onClick={handleOpenSafetyNumber}
+                    className="flex items-center gap-2.5 px-3 py-2 text-xs text-[#e9edef] hover:bg-[#374248] rounded-xl text-left transition"
+                  >
+                    <ShieldCheck className="w-4 h-4 text-[#00a884]" />
+                    <span>Verify Security Code</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={handleToggleLockChat}
+                  className="flex items-center gap-2.5 px-3 py-2 text-xs text-[#e9edef] hover:bg-[#374248] rounded-xl text-left transition"
+                >
+                  {isChatLocked ? (
+                    <>
+                      <Unlock className="w-4 h-4 text-[#f59e0b]" />
+                      <span>Unlock Chat</span>
+                    </>
+                  ) : (
+                    <>
+                      <LockKeyhole className="w-4 h-4 text-[#00a884]" />
+                      <span>Lock Chat</span>
+                    </>
+                  )}
+                </button>
+
+                {!chat.isGroup && (
+                  <button
+                    onClick={handleToggleBlockUser}
+                    className="flex items-center gap-2.5 px-3 py-2 text-xs text-[#e9edef] hover:bg-[#374248] rounded-xl text-left transition"
+                  >
+                    <UserX className="w-4 h-4 text-[#ef4444]" />
+                    <span>{isPeerBlocked ? "Unblock Contact" : "Block Contact"}</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => {
+                    setShowMoreMenu(false);
+                    setShowReportModal(true);
+                  }}
+                  className="flex items-center gap-2.5 px-3 py-2 text-xs text-[#ef4444] hover:bg-[#374248] rounded-xl text-left transition"
+                >
+                  <AlertOctagon className="w-4 h-4" />
+                  <span>{chat.isGroup ? "Report Group" : "Report Contact"}</span>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -616,6 +823,7 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
               setActiveLightboxMedia(media);
               setIsLightboxOpen(true);
             }}
+            onForward={handleForwardCandidate}
           />
         ))}
 
@@ -887,6 +1095,127 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
         onSelectSticker={handleSelectSticker}
         onSelectGif={handleSelectGif}
       />
+
+      {/* Safety Number Verification Modal */}
+      {showSafetyModal && (
+        <SafetyNumberModal
+          peerUserId={chat.peerUserId}
+          peerDisplayName={chat.peerDisplayName || chat.peerPhoneNumber || "Contact"}
+          myUserId={currentUserId}
+          myIdentityKeyB64={myIdentityKeyB64}
+          peerIdentityKeyB64={peerIdentityKeyB64}
+          onClose={() => setShowSafetyModal(false)}
+        />
+      )}
+
+      {/* Report User Modal */}
+      {showReportModal && (
+        <ReportUserModal
+          reportedUserId={chat.isGroup ? chat.id : chat.peerUserId}
+          reportedDisplayName={chat.peerDisplayName || chat.peerPhoneNumber || "Contact"}
+          chatId={chat.id}
+          onClose={() => setShowReportModal(false)}
+        />
+      )}
+
+      {/* Forward Message Modal */}
+      {showForwardModal && forwardCandidate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 animate-in fade-in">
+          <div className="w-full max-w-sm bg-[#202c33] rounded-2xl border border-[#2a3942] p-5 shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="flex items-center justify-between pb-3 border-b border-[#2a3942]">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Forward message to</h3>
+                <span className="text-[11px] text-[#8696a0]">
+                  {selectedForwardChatIds.length} of {(forwardCandidate.forwardCount || 0) >= 5 ? 1 : 5} selected
+                </span>
+              </div>
+              <button
+                onClick={() => {
+                  setShowForwardModal(false);
+                  setForwardCandidate(null);
+                  setSelectedForwardChatIds([]);
+                }}
+                className="p-1 text-[#8696a0] hover:text-white rounded-full hover:bg-[#374248] transition"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {(forwardCandidate.forwardCount || 0) >= 5 && (
+              <div className="mt-3 p-2.5 bg-[#f59e0b]/15 border border-[#f59e0b]/30 rounded-xl flex items-center gap-2 text-xs text-[#f59e0b]">
+                <CornerUpRight className="w-4 h-4 flex-shrink-0" />
+                <span>Forwarded many times. Can only be shared with 1 chat at a time.</span>
+              </div>
+            )}
+
+            <div className="flex-1 overflow-y-auto py-2 my-2 space-y-1">
+              {allChats.length === 0 ? (
+                <p className="text-center text-xs text-[#8696a0] py-6">No chats available</p>
+              ) : (
+                allChats.map((c) => {
+                  const isSelected = selectedForwardChatIds.includes(c.id);
+                  const isMaxReached =
+                    !isSelected &&
+                    selectedForwardChatIds.length >=
+                      ((forwardCandidate.forwardCount || 0) >= 5 ? 1 : 5);
+
+                  return (
+                    <button
+                      key={c.id}
+                      onClick={() => toggleSelectForwardChat(c.id)}
+                      disabled={isMaxReached}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-left transition ${
+                        isSelected
+                          ? "bg-[#00a884]/20 text-white"
+                          : isMaxReached
+                          ? "opacity-40 cursor-not-allowed"
+                          : "hover:bg-[#111b21] text-[#e9edef]"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 truncate">
+                        <div className="w-8 h-8 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold text-xs flex-shrink-0">
+                          {c.isGroup ? <Users className="w-4 h-4" /> : (c.peerDisplayName || c.id).charAt(0).toUpperCase()}
+                        </div>
+                        <span className="text-xs font-medium truncate">
+                          {c.peerDisplayName || c.peerPhoneNumber || c.id}
+                        </span>
+                      </div>
+                      <div className="text-[#00a884]">
+                        {isSelected ? (
+                          <CheckSquare className="w-4 h-4" />
+                        ) : (
+                          <Square className="w-4 h-4 text-[#8696a0]" />
+                        )}
+                      </div>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-[#2a3942] flex justify-end gap-2">
+              <button
+                onClick={() => {
+                  setShowForwardModal(false);
+                  setForwardCandidate(null);
+                  setSelectedForwardChatIds([]);
+                }}
+                className="px-4 py-2 rounded-xl text-xs text-[#8696a0] hover:text-white hover:bg-[#374248] transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleSendForward}
+                disabled={selectedForwardChatIds.length === 0}
+                className="px-4 py-2 rounded-xl text-xs bg-[#00a884] hover:bg-[#02906f] text-white font-medium disabled:opacity-50 transition flex items-center gap-1.5"
+              >
+                <Send className="w-3.5 h-3.5" />
+                <span>Send</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

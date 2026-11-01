@@ -16,12 +16,14 @@ class OtpVerifyRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    refresh_token: str
+    access_token: str = ""
+    refresh_token: str = ""
     token_type: str = "Bearer"
     expires_in: int = 900  # 15 minutes in seconds
     user_id: str
     device_id: int
+    two_step_required: bool = False
+    temp_token: str | None = None
 
 
 class TokenRefreshRequest(BaseModel):

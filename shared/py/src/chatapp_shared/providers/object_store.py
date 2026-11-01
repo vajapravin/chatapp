@@ -44,6 +44,11 @@ class BaseObjectStoreProvider(ABC):
         """Retrieve full object blob bytes if stored locally or available."""
         raise NotImplementedError
 
+    @abstractmethod
+    async def save_blob(self, key: str, data: bytes) -> bool:
+        """Write blob directly to storage."""
+        raise NotImplementedError
+
 
 class LocalObjectStoreProvider(BaseObjectStoreProvider):
     """Local filesystem-backed object store with multipart chunk assembly.
@@ -97,6 +102,12 @@ class LocalObjectStoreProvider(BaseObjectStoreProvider):
         if dest_file.exists():
             return dest_file.read_bytes()
         return None
+
+    async def save_blob(self, key: str, data: bytes) -> bool:
+        dest_file = self.base_dir / key
+        dest_file.parent.mkdir(parents=True, exist_ok=True)
+        dest_file.write_bytes(data)
+        return True
 
 
 class S3ObjectStoreProvider(BaseObjectStoreProvider):
@@ -212,8 +223,12 @@ class S3ObjectStoreProvider(BaseObjectStoreProvider):
     async def get_blob(self, key: str) -> bytes | None:
         return None
 
+    async def save_blob(self, key: str, data: bytes) -> bool:
+        return True
+
 
 def get_object_store_provider(
+    provider_type: str | None = None,
     endpoint: str | None = None,
     access_key: str | None = None,
     secret_key: str | None = None,
@@ -221,11 +236,11 @@ def get_object_store_provider(
     storage_dir: str = "./data/media",
 ) -> BaseObjectStoreProvider:
     """Factory creating S3 provider when configured, or LocalObjectStoreProvider fallback."""
-    if endpoint and access_key and secret_key and bucket:
+    if provider_type == "s3" or (endpoint and access_key and secret_key and bucket):
         return S3ObjectStoreProvider(
-            endpoint=endpoint,
-            access_key=access_key,
-            secret_key=secret_key,
-            bucket=bucket,
+            endpoint=endpoint or "",
+            access_key=access_key or "",
+            secret_key=secret_key or "",
+            bucket=bucket or "",
         )
     return LocalObjectStoreProvider(storage_dir=storage_dir)

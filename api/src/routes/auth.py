@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
 from ..database import get_db
-from ..models.db import Device, RefreshToken, User
+from ..models.db import Device, RefreshToken, TwoStepVerification, User
 
 logger = logging.getLogger("chatapp.api.auth")
 router = APIRouter(prefix="/v1/auth", tags=["Authentication"])
@@ -122,6 +122,31 @@ async def verify_otp(
         )
         db.add(user)
         await db.flush()
+    elif user.is_banned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is suspended",
+        )
+
+    # Check if Two-Step Verification is enabled
+    two_step = await db.get(TwoStepVerification, user.id)
+    if two_step and two_step.enabled:
+        temp_token = create_access_token(
+            user_id=user.id,
+            device_id=1,
+            secret_key=settings.JWT_SECRET_KEY,
+            expires_delta=timedelta(minutes=5),
+            algorithm=settings.JWT_ALGORITHM,
+            scope="2fa",
+        )
+        return TokenResponse(
+            access_token="",
+            refresh_token="",
+            user_id=user.id,
+            device_id=1,
+            two_step_required=True,
+            temp_token=temp_token,
+        )
 
     # Find or create primary Device
     stmt_dev = select(Device).where(Device.user_id == user.id, Device.device_id == 1)

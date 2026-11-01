@@ -23,9 +23,42 @@ test_session_factory = async_sessionmaker(
 )
 
 
+class MockPipeline:
+    def __init__(self, redis):
+        self.redis = redis
+        self.results = []
+
+    def zremrangebyscore(self, key, min_s, max_s):
+        self.results.append(0)
+        return self
+
+    def zadd(self, key, mapping):
+        self.results.append(1)
+        return self
+
+    def zcard(self, key):
+        self.results.append(1)
+        return self
+
+    def expire(self, key, ttl):
+        self.results.append(True)
+        return self
+
+    async def execute(self):
+        return self.results
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+
 class MockRedis:
     def __init__(self):
         self.store = {}
+        self.sets = {}
+        self.hashes = {}
 
     async def get(self, key: str):
         return self.store.get(key)
@@ -35,12 +68,44 @@ class MockRedis:
         return True
 
     async def delete(self, key: str):
-        if key in self.store:
-            del self.store[key]
+        self.store.pop(key, None)
+        self.sets.pop(key, None)
+        self.hashes.pop(key, None)
         return 1
 
     async def ping(self):
         return True
+
+    async def sadd(self, key: str, *members):
+        if key not in self.sets:
+            self.sets[key] = set()
+        for m in members:
+            self.sets[key].add(str(m))
+        return len(members)
+
+    async def srem(self, key: str, *members):
+        if key in self.sets:
+            for m in members:
+                self.sets[key].discard(str(m))
+        return 1
+
+    async def sismember(self, key: str, member: str):
+        return member in self.sets.get(key, set())
+
+    async def hset(self, key: str, mapping: dict | None = None, **kwargs):
+        if key not in self.hashes:
+            self.hashes[key] = {}
+        if mapping:
+            self.hashes[key].update(mapping)
+        if kwargs:
+            self.hashes[key].update(kwargs)
+        return True
+
+    async def hget(self, key: str, field: str):
+        return self.hashes.get(key, {}).get(field)
+
+    def pipeline(self, transaction=True):
+        return MockPipeline(self)
 
     async def aclose(self):
         pass
