@@ -1,5 +1,6 @@
 import * as signal from "@privacyresearch/libsignal-protocol-typescript";
 import mqtt from "mqtt";
+import net from "net";
 
 const API_BASE = "http://localhost:8001";
 const MQTT_URL = "mqtt://localhost:1883";
@@ -240,17 +241,55 @@ class GroupCipher {
   }
 }
 
+async function getOtpFromRedis(phoneNumber) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const code = await new Promise((resolve) => {
+      const socket = net.createConnection({ host: "localhost", port: 6380 }, () => {
+        socket.write(`GET otp:${phoneNumber}\r\n`);
+      });
+      let data = "";
+      socket.on("data", (chunk) => {
+        data += chunk.toString();
+        socket.end();
+        if (data.includes("code")) {
+          try {
+            const jsonStr = data.substring(data.indexOf("{"), data.lastIndexOf("}") + 1);
+            resolve(JSON.parse(jsonStr).code);
+          } catch {
+            resolve(null);
+          }
+        } else {
+          resolve(null);
+        }
+      });
+      socket.on("error", () => resolve(null));
+      setTimeout(() => {
+        socket.destroy();
+        resolve(null);
+      }, 500);
+    });
+    if (code) return code;
+    await new Promise((r) => setTimeout(r, 100));
+  }
+  return "123456";
+}
+
 async function loginUser(phoneNumber) {
-  await fetch(`${API_BASE}/v1/auth/otp/request`, {
+  const reqRes = await fetch(`${API_BASE}/v1/auth/otp/request`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ phone_number: phoneNumber }),
   });
+  if (!reqRes.ok) {
+    throw new Error(`OTP request failed for ${phoneNumber}: ${await reqRes.text()}`);
+  }
+
+  const otpCode = await getOtpFromRedis(phoneNumber);
 
   const res = await fetch(`${API_BASE}/v1/auth/otp/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone_number: phoneNumber, code: "123456" }),
+    body: JSON.stringify({ phone_number: phoneNumber, code: otpCode }),
   });
 
   if (!res.ok) {

@@ -29,6 +29,7 @@ interface CallStoreState {
   isLowDataMode: boolean;
   networkQuality: "good" | "poor" | "critical";
   callDuration: number;
+  selectedAudioDeviceId: string | null;
 
   // Streams
   localStream: MediaStream | null;
@@ -59,6 +60,7 @@ interface CallStoreState {
   toggleLowDataMode: () => boolean;
   setNetworkQuality: (quality: "good" | "poor" | "critical") => void;
   setCallDuration: (duration: number) => void;
+  setSelectedAudioDevice: (id: string | null) => void;
   resetCall: () => void;
   loadCallLogs: () => Promise<void>;
   addCallLog: (item: CallLogItem) => Promise<void>;
@@ -81,6 +83,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
   isLowDataMode: false,
   networkQuality: "good",
   callDuration: 0,
+  selectedAudioDeviceId: null,
 
   localStream: null,
   remoteStreams: {},
@@ -161,6 +164,8 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
 
   setCallDuration: (callDuration) => set({ callDuration }),
 
+  setSelectedAudioDevice: (selectedAudioDeviceId) => set({ selectedAudioDeviceId }),
+
   resetCall: () => {
     const local = get().localStream;
     if (local) {
@@ -185,6 +190,7 @@ export const useCallStore = create<CallStoreState>((set, get) => ({
       isLowDataMode: false,
       networkQuality: "good",
       callDuration: 0,
+      selectedAudioDeviceId: null,
       localStream: null,
       remoteStreams: {},
     });

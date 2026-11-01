@@ -90,14 +90,23 @@ export class CallManager {
           : { width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: 30 }
         : false;
 
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        echoCancellation: true,
-        noiseSuppression: true,
-        autoGainControl: true,
-      },
-      video: videoConstraints,
-    });
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: videoConstraints,
+      });
+    } catch (err) {
+      console.warn("Failed to acquire media with enhanced constraints, falling back to basic constraints:", err);
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: true,
+        video: videoConstraints,
+      });
+    }
 
     useCallStore.getState().setLocalStream(stream);
     return stream;
@@ -168,7 +177,10 @@ export class CallManager {
       peer.addStream(localStream);
       this.peers.set(peerId, peer);
 
-      const offer = await peer.createOffer();
+      const offer = await peer.createOffer({
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: callType === "video",
+      });
 
       // Send Signal-encrypted offer over MQTT
       await this.sendSignal(peerId, {
@@ -577,8 +589,11 @@ export class CallManager {
   /**
    * Speaker audio output switching.
    */
-  public async setAudioOutputDevice(element: HTMLAudioElement | HTMLVideoElement, deviceId: string): Promise<void> {
-    if ("setSinkId" in element && typeof (element as any).setSinkId === "function") {
+  public async setAudioOutputDevice(element?: HTMLAudioElement | HTMLVideoElement | null, deviceId?: string): Promise<void> {
+    if (deviceId !== undefined) {
+      useCallStore.getState().setSelectedAudioDevice(deviceId);
+    }
+    if (element && deviceId && "setSinkId" in element && typeof (element as any).setSinkId === "function") {
       try {
         await (element as any).setSinkId(deviceId);
       } catch (err) {

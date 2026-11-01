@@ -20,6 +20,7 @@ export class WebRtcPeer {
   private statsInterval: any = null;
   private lastPacketsLost = 0;
   private lastPacketsReceived = 0;
+  private remoteStream: MediaStream = new MediaStream();
 
   constructor(
     peerId: string,
@@ -44,8 +45,10 @@ export class WebRtcPeer {
       if (event.streams && event.streams[0]) {
         this.callbacks.onTrack(event.streams[0]);
       } else {
-        const inboundStream = new MediaStream([event.track]);
-        this.callbacks.onTrack(inboundStream);
+        if (event.track) {
+          this.remoteStream.addTrack(event.track);
+        }
+        this.callbacks.onTrack(this.remoteStream);
       }
     };
 
@@ -67,22 +70,40 @@ export class WebRtcPeer {
   }
 
   /**
-   * Modifies SDP to ensure Opus DTX and In-band Forward Error Correction (FEC) are active.
+   * Modifies SDP to ensure Opus DTX and In-band Forward Error Correction (FEC) are active
+   * strictly on the Opus codec payload type without corrupting other format lines.
    */
   public static mungeOpusSdp(sdp: string): string {
-    return sdp.replace(
-      /(a=fmtp:\d+ .*?)(useinbandfec=\d+)?/g,
-      (match) => {
-        let line = match;
-        if (!line.includes("useinbandfec=1")) {
-          line += ";useinbandfec=1";
-        }
-        if (!line.includes("usedtx=1")) {
-          line += ";usedtx=1";
-        }
-        return line;
-      }
-    );
+    if (!sdp) return sdp;
+
+    // Identify Opus payload type from a=rtpmap:<pt> opus/48000
+    const match = sdp.match(/a=rtpmap:(\d+)\s+opus\/48000/i);
+    if (!match) return sdp;
+    const opusPt = match[1];
+
+    const fmtpRegex = new RegExp(`(a=fmtp:${opusPt}\\s+)([^\\r\\n]*)`, "i");
+    if (fmtpRegex.test(sdp)) {
+      return sdp.replace(fmtpRegex, (_, prefix, params) => {
+        const parts = params
+          .split(";")
+          .map((p: string) => p.trim())
+          .filter(Boolean);
+
+        const hasFec = parts.some((p: string) => p.startsWith("useinbandfec="));
+        const hasDtx = parts.some((p: string) => p.startsWith("usedtx="));
+
+        if (!hasFec) parts.push("useinbandfec=1");
+        if (!hasDtx) parts.push("usedtx=1");
+
+        return `${prefix}${parts.join(";")}`;
+      });
+    } else {
+      // If no existing fmtp line for opus, insert right after the rtpmap line
+      return sdp.replace(
+        new RegExp(`(a=rtpmap:${opusPt}\\s+opus\\/48000[^\\r\\n]*\\r?\\n)`, "i"),
+        `$1a=fmtp:${opusPt} useinbandfec=1;usedtx=1\r\n`
+      );
+    }
   }
 
   /**
@@ -100,7 +121,7 @@ export class WebRtcPeer {
   public async createOffer(options?: RTCOfferOptions): Promise<RTCSessionDescriptionInit> {
     const offer = await this.pc.createOffer({
       offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
+      offerToReceiveVideo: false,
       ...options,
     });
     const mungedSdp = WebRtcPeer.mungeOpusSdp(offer.sdp || "");
@@ -142,6 +163,7 @@ export class WebRtcPeer {
    */
   public async addIceCandidate(candidate: RTCIceCandidateInit): Promise<void> {
     try {
+      if (!candidate) return;
       await this.pc.addIceCandidate(new RTCIceCandidate(candidate));
     } catch (err) {
       console.warn("Failed to add ICE candidate:", err);

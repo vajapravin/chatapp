@@ -20,6 +20,57 @@ function formatSeconds(totalSeconds: number): string {
   return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
 }
 
+interface RemoteAudioStreamPlayerProps {
+  stream: MediaStream;
+  sinkId: string | null;
+  onAutoplayBlocked?: () => void;
+  onAutoplaySuccess?: () => void;
+}
+
+const RemoteAudioStreamPlayer: React.FC<RemoteAudioStreamPlayerProps> = ({
+  stream,
+  sinkId,
+  onAutoplayBlocked,
+  onAutoplaySuccess,
+}) => {
+  const audioRef = useRef<HTMLAudioElement>(null);
+
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+
+    if (el.srcObject !== stream) {
+      el.srcObject = stream;
+    }
+
+    if (sinkId && "setSinkId" in el && typeof (el as any).setSinkId === "function") {
+      (el as any).setSinkId(sinkId).catch((err: any) => {
+        console.warn("Failed to set audio sink ID on audio element:", err);
+      });
+    }
+
+    const promise = el.play();
+    if (promise !== undefined) {
+      promise
+        .then(() => {
+          onAutoplaySuccess?.();
+        })
+        .catch((err) => {
+          console.warn("Audio autoplay blocked or failed:", err);
+          if (err.name === "NotAllowedError") {
+            onAutoplayBlocked?.();
+          }
+        });
+    }
+
+    return () => {
+      el.srcObject = null;
+    };
+  }, [stream, sinkId]);
+
+  return <audio ref={audioRef} autoPlay playsInline className="hidden" aria-hidden="true" />;
+};
+
 export const ActiveCallModal: React.FC = () => {
   const {
     callState,
@@ -36,10 +87,12 @@ export const ActiveCallModal: React.FC = () => {
     localStream,
     remoteStreams,
     isGroup,
+    selectedAudioDeviceId,
   } = useCallStore();
 
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [showSpeakerMenu, setShowSpeakerMenu] = useState(false);
+  const [autoplayBlocked, setAutoplayBlocked] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const primaryRemoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -78,8 +131,33 @@ export const ActiveCallModal: React.FC = () => {
 
   const isConnecting = callState === "calling" || callState === "connecting";
 
+  const handleUnblockAudio = () => {
+    document.querySelectorAll("audio").forEach((el) => {
+      el.play().catch(() => {});
+    });
+    setAutoplayBlocked(false);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-lg select-none">
+    <div
+      onClick={() => {
+        if (autoplayBlocked) handleUnblockAudio();
+      }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-lg select-none"
+    >
+      {/* Dedicated Remote Audio Players (Ensures audio is always played for 1:1 and group voice/video) */}
+      <div className="hidden" aria-hidden="true">
+        {remoteEntries.map(([peerId, stream]) => (
+          <RemoteAudioStreamPlayer
+            key={peerId}
+            stream={stream}
+            sinkId={selectedAudioDeviceId}
+            onAutoplayBlocked={() => setAutoplayBlocked(true)}
+            onAutoplaySuccess={() => setAutoplayBlocked(false)}
+          />
+        ))}
+      </div>
+
       <div className="relative w-full h-full flex flex-col justify-between p-4 md:p-8 max-w-6xl">
         {/* Top Header Bar */}
         <div className="flex items-center justify-between text-white z-20">
@@ -128,6 +206,22 @@ export const ActiveCallModal: React.FC = () => {
           </div>
         </div>
 
+        {/* Browser Autoplay Blocked Banner */}
+        {autoplayBlocked && (
+          <div className="z-30 my-2 flex justify-center">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                handleUnblockAudio();
+              }}
+              className="bg-yellow-500 hover:bg-yellow-400 text-black px-4 py-2 rounded-full font-semibold text-xs shadow-lg flex items-center gap-2 animate-bounce cursor-pointer"
+            >
+              <Volume2 className="w-4 h-4" />
+              <span>Audio is paused by browser policy. Click here to unmute</span>
+            </button>
+          </div>
+        )}
+
         {/* Center Stage: Video Grid or Voice Avatar */}
         <div className="flex-1 my-4 flex items-center justify-center relative overflow-hidden rounded-3xl bg-[#111b21] border border-[#2a3942]">
           {/* 1:1 Video Stream */}
@@ -136,6 +230,7 @@ export const ActiveCallModal: React.FC = () => {
               ref={primaryRemoteVideoRef}
               autoPlay
               playsInline
+              muted
               className="w-full h-full object-cover rounded-3xl"
             />
           ) : isGroup && remoteEntries.length > 0 ? (
@@ -152,6 +247,7 @@ export const ActiveCallModal: React.FC = () => {
                     }}
                     autoPlay
                     playsInline
+                    muted
                     className="w-full h-full object-cover"
                   />
                   <div className="absolute bottom-2 left-2 px-2 py-0.5 bg-black/60 rounded text-[11px] text-white">
@@ -279,12 +375,17 @@ export const ActiveCallModal: React.FC = () => {
                     <button
                       key={device.deviceId}
                       onClick={() => {
+                        useCallStore.getState().setSelectedAudioDevice(device.deviceId);
                         if (primaryRemoteVideoRef.current) {
                           callManager.setAudioOutputDevice(primaryRemoteVideoRef.current, device.deviceId);
                         }
                         setShowSpeakerMenu(false);
                       }}
-                      className="px-2.5 py-1.5 text-xs text-left rounded-xl hover:bg-[#374248] text-[#e9edef] truncate"
+                      className={`px-2.5 py-1.5 text-xs text-left rounded-xl hover:bg-[#374248] truncate ${
+                        selectedAudioDeviceId === device.deviceId
+                          ? "text-[#00a884] font-semibold bg-[#2a3942]/60"
+                          : "text-[#e9edef]"
+                      }`}
                     >
                       {device.label || `Speaker (${device.deviceId.slice(0, 6)})`}
                     </button>
