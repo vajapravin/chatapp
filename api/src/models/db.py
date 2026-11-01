@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
     DateTime,
     ForeignKey,
@@ -19,11 +20,12 @@ class User(Base):
     __tablename__ = "users"
 
     id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
-    phone_number: Mapped[str] = mapped_column(String(32), unique=True, index=True, nullable=False)
-    email: Mapped[str | None] = mapped_column(String(255), index=True, nullable=True)
+    phone_number: Mapped[str | None] = mapped_column(String(32), unique=True, index=True, nullable=True)
+    email: Mapped[str | None] = mapped_column(String(255), unique=True, index=True, nullable=True)
     display_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     avatar_url: Mapped[str | None] = mapped_column(Text, nullable=True)
     role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
     is_banned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -334,4 +336,194 @@ class BackupMetadata(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
 
     user: Mapped["User"] = relationship("User")
+
+
+class Invite(Base):
+    __tablename__ = "invites"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    email: Mapped[str] = mapped_column(String(255), index=True, nullable=False)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), default="user", nullable=False)  # user | admin
+    invited_by: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending, accepted, expired, revoked
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+    inviter: Mapped["User"] = relationship("User", foreign_keys=[invited_by])
+
+
+class AuditEvent(Base):
+    __tablename__ = "audit_events"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    actor_id: Mapped[str | None] = mapped_column(String(26), nullable=True, index=True)
+    action: Mapped[str] = mapped_column(String(50), nullable=False, index=True)
+    target_type: Mapped[str] = mapped_column(String(50), nullable=False)
+    target_id: Mapped[str | None] = mapped_column(String(26), nullable=True)
+    details: Mapped[str | None] = mapped_column(Text, nullable=True)  # JSON string
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class Channel(Base):
+    __tablename__ = "channels"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    owner_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(48), nullable=False)
+    topic: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    icon_ref: Mapped[str | None] = mapped_column(Text, nullable=True)
+    radio_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    members_can_invite: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    history_handover: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    retention_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+    owner: Mapped["User"] = relationship("User")
+    members: Mapped[list["ChannelMember"]] = relationship("ChannelMember", back_populates="channel", cascade="all, delete-orphan")
+
+
+class ChannelMember(Base):
+    __tablename__ = "channel_members"
+
+    channel_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
+    )
+    role: Mapped[str] = mapped_column(String(20), default="member", nullable=False)  # owner | member
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    last_read_post_id: Mapped[str | None] = mapped_column(String(26), nullable=True)
+
+    channel: Mapped["Channel"] = relationship("Channel", back_populates="members")
+    user: Mapped["User"] = relationship("User")
+
+
+class ChannelInvite(Base):
+    __tablename__ = "channel_invites"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    channel_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("channels.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    invitee_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    invited_by: Mapped[str] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)  # pending, accepted, declined, expired
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ChannelPost(Base):
+    __tablename__ = "channel_posts"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    channel_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("channels.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sender_user: Mapped[str] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sender_device: Mapped[int] = mapped_column(Integer, nullable=False)
+    key_epoch: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    ciphertext: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), index=True)
+    edited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RadioState(Base):
+    __tablename__ = "radio_state"
+
+    channel_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("channels.id", ondelete="CASCADE"), primary_key=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="stopped", nullable=False)  # playing, paused, stopped
+    track_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    started_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)  # Server timestamp in ms
+    paused_at: Mapped[int | None] = mapped_column(BigInteger, nullable=True)   # Position in ms when paused
+    repeat_mode: Mapped[str] = mapped_column(String(10), default="off", nullable=False)  # off, one, all
+    shuffle: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    queue_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+    )
+
+
+class RadioQueueItem(Base):
+    __tablename__ = "radio_queue"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    channel_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("channels.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    video_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    artist: Mapped[str] = mapped_column(String(255), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    thumb_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    added_by: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    source: Mapped[str] = mapped_column(String(32), default="search", nullable=False)  # search, url, llm, autodj, playlist
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class RadioPlaylist(Base):
+    __tablename__ = "radio_playlists"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    channel_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("channels.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    tracks_json: Mapped[str] = mapped_column(Text, nullable=False)  # JSON string of tracks
+    created_by: Mapped[str | None] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class LlmRequest(Base):
+    __tablename__ = "llm_requests"
+
+    id: Mapped[str] = mapped_column(String(26), primary_key=True)  # ULID
+    channel_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("channels.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    user_id: Mapped[str] = mapped_column(
+        String(26), ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    response_json: Mapped[str] = mapped_column(Text, nullable=False)
+    selected_track_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class TrackCache(Base):
+    __tablename__ = "track_cache"
+
+    video_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    artist: Mapped[str] = mapped_column(String(255), nullable=False)
+    duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
+    thumb_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    is_playable: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    cached_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
 

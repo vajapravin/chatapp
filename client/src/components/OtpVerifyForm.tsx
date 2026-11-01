@@ -31,7 +31,7 @@ export const OtpVerifyForm: React.FC<OtpVerifyFormProps> = ({
 
     setLoading(true);
     try {
-      const data = await verifyOtp(phoneNumber, code, "Web Client");
+      const data = await verifyOtp(phoneNumber, code, "Web Client", email);
       setAuth({
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -65,7 +65,7 @@ export const OtpVerifyForm: React.FC<OtpVerifyFormProps> = ({
         onClick={onBack}
         className="text-[#8696a0] hover:text-white flex items-center gap-1.5 text-xs font-semibold mb-6 transition"
       >
-        <ArrowLeft className="w-4 h-4" /> Change phone number
+        <ArrowLeft className="w-4 h-4" /> Back to sign in
       </button>
 
       <div className="flex flex-col items-center text-center mb-6">
@@ -74,7 +74,7 @@ export const OtpVerifyForm: React.FC<OtpVerifyFormProps> = ({
         </div>
         <h1 className="text-2xl font-bold text-white tracking-wide">Enter Verification Code</h1>
         <p className="text-sm text-[#8696a0] mt-1">
-          Code dispatched to <span className="text-white font-medium">{phoneNumber}</span>
+          Code dispatched to <span className="text-white font-medium">{email || phoneNumber}</span>
         </p>
       </div>
 

@@ -6,7 +6,10 @@ export async function requestOtp(phoneNumber: string, email?: string) {
   const res = await fetch(`${API_BASE}/v1/auth/otp/request`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone_number: phoneNumber, email: email || null }),
+    body: JSON.stringify({
+      phone_number: phoneNumber || (email ? email : null),
+      email: email || null,
+    }),
   });
 
   if (!res.ok) {
@@ -17,12 +20,18 @@ export async function requestOtp(phoneNumber: string, email?: string) {
   return res.json();
 }
 
-export async function verifyOtp(phoneNumber: string, code: string, deviceName = "Web Browser") {
+export async function verifyOtp(
+  phoneNumber: string,
+  code: string,
+  deviceName = "Web Browser",
+  email?: string
+) {
   const res = await fetch(`${API_BASE}/v1/auth/otp/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
-      phone_number: phoneNumber,
+      phone_number: phoneNumber || (email ? email : null),
+      email: email || null,
       code,
       device_name: deviceName,
     }),

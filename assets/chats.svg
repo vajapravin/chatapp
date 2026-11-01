@@ -1,0 +1,134 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 675" width="1200" height="675" style="background:#0B0F19; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;">
+  <defs>
+    <linearGradient id="bgGrad2" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0B0F19"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="primaryGrad2" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#059669"/>
+      <stop offset="100%" stop-color="#10B981"/>
+    </linearGradient>
+    <filter id="cardShadow2" x="-5%" y="-5%" width="110%" height="110%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#000000" flood-opacity="0.6"/>
+    </filter>
+  </defs>
+
+  <!-- Window Container -->
+  <rect x="15" y="15" width="1170" height="645" rx="14" fill="url(#bgGrad2)" stroke="#1F2937" stroke-width="1.5" filter="url(#cardShadow2)"/>
+
+  <!-- Window Chrome / Titlebar -->
+  <rect x="15" y="15" width="1170" height="44" rx="14" fill="#111827"/>
+  <rect x="15" y="45" width="1170" height="14" fill="#111827"/>
+  <circle cx="42" cy="37" r="6" fill="#EF4444"/>
+  <circle cx="62" cy="37" r="6" fill="#F59E0B"/>
+  <circle cx="82" cy="37" r="6" fill="#10B981"/>
+  <text x="600" y="41" fill="#9CA3AF" font-size="13" font-weight="500" text-anchor="middle">Chatapp — Zero-Knowledge E2EE Messenger</text>
+
+  <!-- Left Navigation Rail (72px) -->
+  <rect x="15" y="59" width="72" height="601" fill="#0F172A" stroke="#1F2937" stroke-width="1"/>
+  <rect x="29" y="75" width="44" height="44" rx="12" fill="url(#primaryGrad2)"/>
+  <text x="51" y="103" fill="#FFFFFF" font-size="20" font-weight="bold" text-anchor="middle">C</text>
+
+  <!-- Active Chats Icon -->
+  <rect x="25" y="140" width="52" height="40" rx="12" fill="#1E293B"/>
+  <rect x="15" y="148" width="4" height="24" rx="2" fill="#10B981"/>
+  <circle cx="51" cy="160" r="9" fill="none" stroke="#10B981" stroke-width="2.5"/>
+
+  <!-- Nav Item: Channels -->
+  <rect x="33" y="194" width="36" height="36" rx="10" fill="#1E293B" opacity="0.6"/>
+  <text x="51" y="218" fill="#94A3B8" font-size="16" font-weight="bold" text-anchor="middle">#</text>
+
+  <!-- Chat List Column (340px) -->
+  <rect x="87" y="59" width="340" height="601" fill="#111827" stroke="#1F2937" stroke-width="1"/>
+
+  <!-- Search Bar -->
+  <rect x="103" y="75" width="308" height="38" rx="8" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="138" y="99" fill="#64748B" font-size="13">Search encrypted chats...</text>
+  <circle cx="122" cy="94" r="5" fill="none" stroke="#64748B" stroke-width="1.5"/>
+
+  <!-- Chat Item 1 (Selected) -->
+  <rect x="95" y="125" width="324" height="72" rx="10" fill="#1E293B"/>
+  <circle cx="132" cy="161" r="20" fill="#0284C7"/>
+  <text x="132" y="166" fill="#FFFFFF" font-size="12" font-weight="bold" text-anchor="middle">CE</text>
+  <text x="164" y="150" fill="#F9FAFB" font-size="14" font-weight="bold">Core Engineering</text>
+  <text x="380" y="148" fill="#10B981" font-size="11">12:35 PM</text>
+  <text x="164" y="172" fill="#94A3B8" font-size="12">Pravin: Media upload pipeline verified ✓✓</text>
+  <rect x="388" y="158" width="20" height="18" rx="9" fill="#10B981"/>
+  <text x="398" y="171" fill="#0F172A" font-size="10" font-weight="bold" text-anchor="middle">2</text>
+
+  <!-- Chat Item 2 -->
+  <rect x="95" y="201" width="324" height="72" rx="10" fill="none"/>
+  <circle cx="132" cy="237" r="20" fill="#8B5CF6"/>
+  <text x="132" y="242" fill="#FFFFFF" font-size="12" font-weight="bold" text-anchor="middle">SJ</text>
+  <text x="164" y="226" fill="#F3F4F6" font-size="14" font-weight="600">Sarah Jenkins</text>
+  <text x="380" y="224" fill="#6B7280" font-size="11">11:15 AM</text>
+  <text x="164" y="248" fill="#6B7280" font-size="12">Voice note (0:42) 🎙️</text>
+
+  <!-- Chat Item 3 -->
+  <rect x="95" y="277" width="324" height="72" rx="10" fill="none"/>
+  <circle cx="132" cy="313" r="20" fill="#F59E0B"/>
+  <text x="132" y="318" fill="#FFFFFF" font-size="12" font-weight="bold" text-anchor="middle">DC</text>
+  <text x="164" y="302" fill="#F3F4F6" font-size="14" font-weight="600">David Chen</text>
+  <text x="380" y="300" fill="#6B7280" font-size="11">Yesterday</text>
+  <text x="164" y="324" fill="#6B7280" font-size="12">Safety number QR code scanned ✓✓</text>
+
+  <!-- Main Chat Conversation Pane (745px) -->
+  <rect x="427" y="59" width="758" height="601" fill="#0B1120"/>
+
+  <!-- Chat Header -->
+  <rect x="427" y="59" width="758" height="60" fill="#0F172A" stroke="#1F2937" stroke-width="1"/>
+  <circle cx="460" cy="89" r="18" fill="#0284C7"/>
+  <text x="460" y="94" fill="#FFFFFF" font-size="11" font-weight="bold" text-anchor="middle">CE</text>
+  <text x="490" y="83" fill="#F9FAFB" font-size="15" font-weight="bold">Core Engineering Group</text>
+  <text x="490" y="102" fill="#10B981" font-size="11">🔒 End-to-End Encrypted (Signal Sender Keys) · 8 members</text>
+
+  <!-- Call Buttons -->
+  <rect x="1100" y="73" width="34" height="34" rx="8" fill="#1E293B"/>
+  <circle cx="1117" cy="90" r="6" fill="none" stroke="#10B981" stroke-width="2"/>
+  <rect x="1142" y="73" width="34" height="34" rx="8" fill="#1E293B"/>
+  <polygon points="1154,84 1166,90 1154,96" fill="#10B981"/>
+
+  <!-- Message 1 (Received) -->
+  <rect x="455" y="145" width="420" height="68" rx="12" fill="#1E293B" stroke="#334155" stroke-width="0.5"/>
+  <text x="472" y="168" fill="#38BDF8" font-size="12" font-weight="bold">Sarah Jenkins</text>
+  <text x="472" y="190" fill="#F3F4F6" font-size="13">Are files on MinIO encrypted before the pre-signed S3 upload?</text>
+  <text x="835" y="204" fill="#94A3B8" font-size="10">12:31 PM</text>
+
+  <!-- Message 2 (Sent) -->
+  <rect x="710" y="230" width="455" height="90" rx="12" fill="#064E3B" stroke="#059669" stroke-width="0.5"/>
+  <text x="725" y="255" fill="#ECFDF5" font-size="13">Yes, zero plaintext ever touches S3. All files are split</text>
+  <text x="725" y="277" fill="#ECFDF5" font-size="13">into 4 MB chunks and encrypted client-side with AES-256-GCM.</text>
+  <text x="725" y="299" fill="#6EE7B7" font-size="12">Keys travel strictly inside Double Ratchet envelopes.</text>
+  <text x="1110" y="310" fill="#6EE7B7" font-size="10">12:33 PM ✓✓</text>
+
+  <!-- Voice Note Message (Received) -->
+  <rect x="455" y="338" width="380" height="82" rx="12" fill="#1E293B" stroke="#334155" stroke-width="0.5"/>
+  <circle cx="485" cy="375" r="16" fill="#10B981"/>
+  <polygon points="482,369 492,375 482,381" fill="#0F172A"/>
+  <!-- Waveform lines -->
+  <line x1="515" y1="375" x2="515" y2="360" stroke="#10B981" stroke-width="3" stroke-linecap="round"/>
+  <line x1="525" y1="375" x2="525" y2="350" stroke="#10B981" stroke-width="3" stroke-linecap="round"/>
+  <line x1="535" y1="375" x2="535" y2="388" stroke="#10B981" stroke-width="3" stroke-linecap="round"/>
+  <line x1="545" y1="375" x2="545" y2="355" stroke="#10B981" stroke-width="3" stroke-linecap="round"/>
+  <line x1="555" y1="375" x2="555" y2="392" stroke="#10B981" stroke-width="3" stroke-linecap="round"/>
+  <line x1="565" y1="375" x2="565" y2="365" stroke="#64748B" stroke-width="3" stroke-linecap="round"/>
+  <line x1="575" y1="375" x2="575" y2="370" stroke="#64748B" stroke-width="3" stroke-linecap="round"/>
+  <line x1="585" y1="375" x2="585" y2="360" stroke="#64748B" stroke-width="3" stroke-linecap="round"/>
+  <text x="605" y="379" fill="#94A3B8" font-size="12">0:24 / 0:52</text>
+  <text x="472" y="410" fill="#6EE7B7" font-size="11">🎙️ On-Device Whisper Transcription: 'Active memory verified at 294 MB'</text>
+
+  <!-- Message 3 (Sent) -->
+  <rect x="755" y="438" width="410" height="62" rx="12" fill="#064E3B" stroke="#059669" stroke-width="0.5"/>
+  <text x="770" y="463" fill="#ECFDF5" font-size="13">Safety number verified with 60-digit fingerprint! 🔒</text>
+  <text x="770" y="483" fill="#A7F3D0" font-size="12">Multi-device session synched to your browser.</text>
+  <text x="1115" y="492" fill="#6EE7B7" font-size="10">12:35 PM ✓✓</text>
+
+  <!-- Chat Composer -->
+  <rect x="445" y="585" width="720" height="52" rx="10" fill="#1E293B" stroke="#334155" stroke-width="1"/>
+  <text x="495" y="616" fill="#64748B" font-size="13">Type an encrypted message...</text>
+  <!-- Smile / Clip icons -->
+  <circle cx="470" cy="611" r="8" fill="none" stroke="#94A3B8" stroke-width="1.5"/>
+  <!-- Send button -->
+  <rect x="1115" y="593" width="40" height="36" rx="8" fill="url(#primaryGrad2)"/>
+  <polygon points="1130,605 1142,611 1130,617" fill="#FFFFFF"/>
+</svg>

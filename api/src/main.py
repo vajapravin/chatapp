@@ -12,9 +12,11 @@ from .routes import (
     backups_router,
     blocks_reports_router,
     calls_router,
+    channels_router,
     devices_router,
     groups_router,
     health_router,
+    invites_router,
     keys_router,
     media_router,
     passkeys_router,
@@ -63,6 +65,7 @@ app.add_middleware(
 
 # Include Routers
 app.include_router(health_router)
+app.include_router(invites_router)
 app.include_router(auth_router)
 app.include_router(two_step_router)
 app.include_router(passkeys_router)
@@ -74,6 +77,7 @@ app.include_router(admin_router)
 app.include_router(devices_router)
 app.include_router(backups_router)
 app.include_router(groups_router)
+app.include_router(channels_router)
 app.include_router(media_router)
 app.include_router(calls_router)
 app.include_router(presence_router)
@@ -88,3 +92,10 @@ async def root() -> dict:
         "docs": "/docs",
         "health": "/healthz",
     }
+
+
+@app.get("/v1/time")
+async def get_server_time() -> dict:
+    """Return authoritative server time in milliseconds for radio synchronization."""
+    import time
+    return {"server_time_ms": int(time.time() * 1000)}

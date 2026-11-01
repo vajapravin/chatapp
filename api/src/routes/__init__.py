@@ -3,9 +3,11 @@ from .auth import router as auth_router
 from .backups import router as backups_router
 from .blocks_reports import router as blocks_reports_router
 from .calls import router as calls_router
+from .channels import router as channels_router
 from .devices import router as devices_router
 from .groups import router as groups_router
 from .health import router as health_router
+from .invites import router as invites_router
 from .keys import router as keys_router
 from .media import router as media_router
 from .passkeys import router as passkeys_router
@@ -21,9 +23,11 @@ __all__ = [
     "backups_router",
     "blocks_reports_router",
     "calls_router",
+    "channels_router",
     "devices_router",
     "groups_router",
     "health_router",
+    "invites_router",
     "keys_router",
     "media_router",
     "passkeys_router",

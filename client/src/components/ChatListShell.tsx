@@ -2,24 +2,26 @@ import React, { useEffect, useMemo, useState } from "react";
 import { format, isToday, isYesterday } from "date-fns";
 import {
   Lock,
-  LogOut,
-  MessageSquare,
   MessageSquarePlus,
   Phone,
   Search,
-  Shield,
   User as UserIcon,
   Users,
-  Settings as SettingsIcon,
   ChevronDown,
   ChevronRight,
-  AlertCircle,
+  Hash,
+  Plus,
+  Radio,
+  Volume2,
+  VolumeX,
 } from "lucide-react";
 import { fetchCurrentUser } from "../services/api";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
 import { useCallStore } from "../store/callStore";
 import { usePrivacyStore } from "../store/privacyStore";
+import { useChannelStore } from "../store/channelStore";
+import { useRadioStore } from "../store/radioStore";
 import { initMqttTransport, transportInstance } from "../transport/mqttClient";
 import { ConversationView } from "./ConversationView";
 import { NewChatModal } from "./NewChatModal";
@@ -30,6 +32,11 @@ import { CallHistoryView } from "./CallHistoryView";
 import { SettingsModal } from "./SettingsModal";
 import { AdminModerationModal } from "./AdminModerationModal";
 import { AppLockOverlay } from "./AppLockOverlay";
+import { LeftRail } from "./dashboard/LeftRail";
+import { ChannelSidebar } from "./dashboard/ChannelSidebar";
+import { ChannelView } from "./dashboard/ChannelView";
+import { NewChannelModal } from "./dashboard/NewChannelModal";
+import { QuickSwitcherModal } from "./dashboard/QuickSwitcherModal";
 
 function formatChatTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -53,12 +60,31 @@ export const ChatListShell: React.FC = () => {
     setActiveChat,
   } = useChatStore();
 
+  const {
+    channels,
+    activeChannelId,
+    pendingInvites,
+    loadChannels,
+    loadPendingInvites,
+    setActiveChannelId,
+    acceptInvite,
+    declineInvite,
+  } = useChannelStore();
+
   const [searchFilter, setSearchFilter] = useState("");
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState(false);
+  const [isNewChannelModalOpen, setIsNewChannelModalOpen] = useState(false);
+  const [isQuickSwitcherOpen, setIsQuickSwitcherOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState(false);
-  const [currentTab, setCurrentTab] = useState<"chats" | "calls">("chats");
+  const [currentTab, setCurrentTab] = useState<"chats" | "channels" | "calls">("channels");
+
+  const isTunedIn = useRadioStore((state) => state.isTunedIn);
+  const radioData = useRadioStore((state) => state.radioData);
+  const setTunedIn = useRadioStore((state) => state.setTunedIn);
+  const isMuted = useRadioStore((state) => state.isMuted);
+  const setMuted = useRadioStore((state) => state.setMuted);
 
   const {
     lockedChatIds,
@@ -66,8 +92,6 @@ export const ChatListShell: React.FC = () => {
     setLockedChatsFolderOpen,
     loadLockedChats,
     recordActivity,
-    appLock,
-    unlockApp,
   } = usePrivacyStore();
 
   const { callLogs, loadCallLogs } = useCallStore();
@@ -76,10 +100,27 @@ export const ChatListShell: React.FC = () => {
     [callLogs]
   );
 
+  const unreadChatsCount = useMemo(
+    () => chats.reduce((sum, c) => sum + (c.unreadCount || 0), 0),
+    [chats]
+  );
+
+  const unreadChannelsCount = useMemo(
+    () => channels.reduce((sum, c) => sum + (c.unread_count || 0), 0) + pendingInvites.length,
+    [channels, pendingInvites]
+  );
+
+  const isAdmin = useMemo(
+    () => user?.role === "admin" || !!user?.phone_number?.endsWith("000"),
+    [user]
+  );
+
   useEffect(() => {
     loadCallLogs();
     loadLockedChats();
-  }, [loadCallLogs, loadLockedChats]);
+    loadChannels();
+    loadPendingInvites();
+  }, [loadCallLogs, loadLockedChats, loadChannels, loadPendingInvites]);
 
   // Activity tracking for App Lock auto-lock
   useEffect(() => {
@@ -116,14 +157,55 @@ export const ChatListShell: React.FC = () => {
     };
   }, [userId, deviceId, loadInitialData]);
 
+  // Subscribe to active channel MQTT topic
+  useEffect(() => {
+    if (activeChannelId) {
+      transportInstance?.subscribeChannel(activeChannelId);
+    }
+  }, [activeChannelId]);
+
+  // Global hotkeys (Ctrl+K for quick switcher, Alt+Up/Down for channels)
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setIsQuickSwitcherOpen((prev) => !prev);
+        return;
+      }
+
+      if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        if (currentTab === "channels" && channels.length > 0) {
+          e.preventDefault();
+          const curIdx = channels.findIndex((c) => c.id === activeChannelId);
+          const nextIdx =
+            e.key === "ArrowDown"
+              ? (curIdx + 1) % channels.length
+              : (curIdx - 1 + channels.length) % channels.length;
+          const nextChan = channels[nextIdx];
+          if (nextChan) {
+            setActiveChannelId(nextChan.id);
+            transportInstance?.subscribeChannel(nextChan.id);
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [currentTab, channels, activeChannelId, setActiveChannelId]);
+
   const activeChat = useMemo(
     () => chats.find((c) => c.id === activeChatId),
     [chats, activeChatId]
   );
 
+  const activeChannel = useMemo(
+    () => channels.find((c) => c.id === activeChannelId),
+    [channels, activeChannelId]
+  );
+
   const filteredChats = useMemo(() => {
     let list = chats;
-    // Hide locked chats from main view unless viewing locked folder
     if (!isLockedChatsFolderOpen) {
       list = list.filter((c) => !lockedChatIds.includes(c.id));
     } else {
@@ -139,234 +221,215 @@ export const ChatListShell: React.FC = () => {
     );
   }, [chats, searchFilter, lockedChatIds, isLockedChatsFolderOpen]);
 
+  const isMobileDetailOpen =
+    (currentTab === "chats" && !!activeChat) ||
+    (currentTab === "channels" && !!activeChannel);
+
   return (
     <div className="flex h-screen w-screen overflow-hidden bg-[#111b21] text-[#e9edef]">
-      {/* Left Sidebar (Chats List) */}
-      <div
-        className={`${
-          activeChat ? "hidden md:flex" : "flex"
-        } w-full md:w-[420px] md:min-w-[340px] h-full flex-col border-r border-[#222e35] bg-[#111b21]`}
-      >
-        {/* Top Header */}
-        <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#222e35] select-none">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold">
-              {user?.display_name ? (
-                user.display_name.charAt(0).toUpperCase()
-              ) : (
-                <UserIcon className="w-5 h-5" />
-              )}
-            </div>
-            <div className="flex flex-col">
-              <span className="text-sm font-semibold text-white leading-tight">
-                {user?.display_name || user?.phone_number || "You"}
-              </span>
-              <span className="text-[11px] text-[#8696a0] flex items-center gap-1.5">
-                <span className="w-2 h-2 rounded-full bg-[#00a884] inline-block" />
-                <span>Device #{deviceId || 1}</span>
-              </span>
-            </div>
-          </div>
+      {/* 72px Discord-style Left Rail */}
+      <div className={`${isMobileDetailOpen ? "hidden md:flex" : "flex"} shrink-0`}>
+        <LeftRail
+          currentTab={currentTab}
+          onTabChange={(tab) => {
+            setCurrentTab(tab);
+            if (tab === "channels" && !activeChannelId && channels.length > 0) {
+              setActiveChannelId(channels[0].id);
+            }
+          }}
+          user={user}
+          unreadChatsCount={unreadChatsCount}
+          unreadChannelsCount={unreadChannelsCount}
+          missedCallsCount={missedCount}
+          isAdmin={isAdmin}
+          onOpenAdmin={() => setIsAdminModalOpen(true)}
+          onOpenSettings={() => setIsSettingsModalOpen(true)}
+          onLogout={logout}
+        />
+      </div>
 
-          <div className="flex items-center gap-1 text-[#aebac1]">
-            <button
-              onClick={() => setIsNewGroupModalOpen(true)}
-              title="New Group"
-              className="p-2 hover:bg-[#374248] rounded-full transition"
-            >
-              <Users className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setIsNewChatModalOpen(true)}
-              title="New Chat"
-              className="p-2 hover:bg-[#374248] rounded-full transition"
-            >
-              <MessageSquarePlus className="w-5 h-5" />
-            </button>
-            <button
-              onClick={() => setIsSettingsModalOpen(true)}
-              title="Settings"
-              className="p-2 hover:bg-[#374248] rounded-full transition"
-            >
-              <SettingsIcon className="w-5 h-5" />
-            </button>
-            {(user?.phone_number?.endsWith("000") || (user as any)?.role === "admin") && (
+      {/* Main Workspace based on currentTab */}
+      <div className={`flex-1 flex h-full overflow-hidden ${currentTab === "channels" ? "" : "hidden"}`}>
+        {/* Channel Sidebar (240px) */}
+        <div
+          className={`${
+            activeChannel ? "hidden md:flex" : "flex"
+          } w-full md:w-[240px] md:min-w-[240px] h-full flex-col shrink-0`}
+        >
+          <ChannelSidebar
+            channels={channels}
+            activeChannelId={activeChannelId}
+            onSelectChannel={(id) => {
+              setActiveChannelId(id);
+              transportInstance?.subscribeChannel(id);
+            }}
+            onOpenNewChannelModal={() => setIsNewChannelModalOpen(true)}
+            pendingInvites={pendingInvites}
+            onAcceptInvite={acceptInvite}
+            onDeclineInvite={declineInvite}
+          />
+        </div>
+
+        {/* Active Channel View */}
+        <div
+          className={`${
+            activeChannel ? "flex" : "hidden md:flex"
+          } flex-1 h-full overflow-hidden`}
+        >
+          {activeChannel ? (
+            <ChannelView
+              channel={activeChannel}
+              onBack={() => setActiveChannelId(null)}
+            />
+          ) : (
+            <div className="flex-1 h-full bg-[#0b141a] flex flex-col items-center justify-center p-8 border-b-[6px] border-[#00a884] select-none text-center">
+              <div className="w-20 h-20 rounded-2xl bg-[#202c33] flex items-center justify-center mb-4 text-[#00a884] border border-[#2a3942] shadow-xl">
+                <Hash className="w-10 h-10" />
+              </div>
+              <h2 className="text-xl font-bold text-white mb-2">No Channel Selected</h2>
+              <p className="text-xs text-[#8696a0] max-w-sm mb-6">
+                Pick a channel from the sidebar or create a new private channel to collaborate with Slack-style posts and synchronized YouTube radio.
+              </p>
               <button
-                onClick={() => setIsAdminModalOpen(true)}
-                title="Admin Moderation"
-                className="p-2 hover:bg-[#374248] text-amber-400 rounded-full transition"
+                onClick={() => setIsNewChannelModalOpen(true)}
+                className="px-4 py-2 bg-[#00a884] hover:bg-[#02906f] text-[#111b21] rounded-xl text-xs font-bold transition flex items-center gap-1.5 shadow-lg shadow-[#00a884]/20"
               >
-                <AlertCircle className="w-5 h-5" />
+                <Plus className="w-4 h-4" />
+                Create Channel
               </button>
-            )}
-            <button
-              onClick={logout}
-              title="Sign Out"
-              className="p-2 hover:bg-[#374248] rounded-full text-red-400 hover:text-red-300 transition"
-            >
-              <LogOut className="w-5 h-5" />
-            </button>
-          </div>
+            </div>
+          )}
         </div>
+      </div>
 
-        {/* Navigation Tabs: Chats vs Calls */}
-        <div className="flex items-center border-b border-[#222e35] bg-[#202c33]/40">
-          <button
-            onClick={() => setCurrentTab("chats")}
-            className={`flex-1 py-2.5 flex items-center justify-center gap-2 text-xs font-semibold transition border-b-2 ${
-              currentTab === "chats"
-                ? "border-[#00a884] text-[#00a884]"
-                : "border-transparent text-[#8696a0] hover:text-white"
-            }`}
+      <div className={`flex-1 flex h-full overflow-hidden ${currentTab === "chats" ? "" : "hidden"}`}>
+          {/* Chats List Column */}
+          <div
+            className={`${
+              activeChat ? "hidden md:flex" : "flex"
+            } w-full md:w-[380px] md:min-w-[320px] h-full flex-col border-r border-[#222e35] bg-[#111b21] shrink-0`}
           >
-            <MessageSquare className="w-4 h-4" />
-            <span>Chats</span>
-          </button>
-          <button
-            onClick={() => setCurrentTab("calls")}
-            className={`flex-1 py-2.5 flex items-center justify-center gap-2 text-xs font-semibold transition border-b-2 ${
-              currentTab === "calls"
-                ? "border-[#00a884] text-[#00a884]"
-                : "border-transparent text-[#8696a0] hover:text-white"
-            }`}
-          >
-            <Phone className="w-4 h-4" />
-            <span>Calls</span>
-            {missedCount > 0 && (
-              <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
-                {missedCount}
-              </span>
-            )}
-          </button>
-        </div>
+            {/* Top Header */}
+            <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#222e35] select-none">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-bold tracking-wide uppercase text-white">Direct Chats</span>
+                <span className="text-xs px-1.5 py-0.5 rounded-full bg-[#111b21] text-[#8696a0] font-mono">
+                  {chats.length}
+                </span>
+              </div>
 
-        {currentTab === "calls" ? (
-          <CallHistoryView />
-        ) : (
-          <>
+              <div className="flex items-center gap-1 text-[#aebac1]">
+                <button
+                  onClick={() => setIsNewGroupModalOpen(true)}
+                  title="New Group"
+                  className="p-2 hover:bg-[#374248] rounded-full transition"
+                >
+                  <Users className="w-5 h-5" />
+                </button>
+                <button
+                  onClick={() => setIsNewChatModalOpen(true)}
+                  title="New Chat"
+                  className="p-2 hover:bg-[#374248] rounded-full transition"
+                >
+                  <MessageSquarePlus className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+
             {/* Search Bar */}
             <div className="px-3 py-2 border-b border-[#222e35]">
               <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-[#202c33] text-[#8696a0]">
                 <Search className="w-4 h-4 text-[#8696a0]" />
                 <input
                   type="text"
+                  placeholder="Search chats..."
                   value={searchFilter}
                   onChange={(e) => setSearchFilter(e.target.value)}
-                  placeholder="Search or start a new chat"
-                  className="w-full bg-transparent text-sm text-white focus:outline-none placeholder-[#8696a0]"
+                  className="w-full bg-transparent text-sm text-[#d1d7db] placeholder-[#8696a0] focus:outline-none"
                 />
               </div>
             </div>
 
-            {/* Locked Chats Collapsible Banner */}
+            {/* Locked Chats Folder Pill */}
             {lockedChatIds.length > 0 && (
               <div
-                onClick={() => {
-                  if (!isLockedChatsFolderOpen) {
-                    if (appLock.enabled) {
-                      const pin = prompt("Enter PIN to unlock locked chats folder:");
-                      if (pin && unlockApp(pin)) {
-                        setLockedChatsFolderOpen(true);
-                      } else {
-                        alert("Incorrect PIN");
-                      }
-                    } else {
-                      setLockedChatsFolderOpen(true);
-                    }
-                  } else {
-                    setLockedChatsFolderOpen(false);
-                  }
-                }}
-                className="flex items-center justify-between px-4 py-3 bg-[#182229] hover:bg-[#202c33] cursor-pointer border-b border-[#202c33] select-none transition"
+                onClick={() => setLockedChatsFolderOpen(!isLockedChatsFolderOpen)}
+                className="flex items-center justify-between px-4 py-3 border-b border-[#222e35] bg-[#182229]/50 hover:bg-[#202c33]/50 cursor-pointer transition select-none"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center">
+                  <div className="w-8 h-8 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center">
                     <Lock className="w-4 h-4" />
                   </div>
-                  <div>
-                    <div className="text-xs font-semibold text-white">Locked Chats</div>
-                    <div className="text-[10px] text-[#8696a0]">
-                      {lockedChatIds.length} chat{lockedChatIds.length > 1 ? "s" : ""} hidden
-                    </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-semibold text-white">Locked Chats</span>
+                    <span className="text-xs text-[#8696a0]">
+                      {lockedChatIds.length} {lockedChatIds.length === 1 ? "chat" : "chats"} protected
+                    </span>
                   </div>
                 </div>
-                <div className="flex items-center gap-1 text-xs text-[#00a884] font-medium">
-                  <span>{isLockedChatsFolderOpen ? "Viewing" : "Unlock"}</span>
-                  {isLockedChatsFolderOpen ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                <div className="text-[#8696a0]">
+                  {isLockedChatsFolderOpen ? (
+                    <ChevronDown className="w-4 h-4" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4" />
+                  )}
                 </div>
               </div>
             )}
 
-            {/* Chats Scroll Area */}
+            {/* Chat List Items */}
             <div className="flex-1 overflow-y-auto">
               {filteredChats.length === 0 ? (
-                <div className="h-full flex flex-col items-center justify-center p-6 text-center">
-                  <div className="w-14 h-14 rounded-full bg-[#202c33] flex items-center justify-center mb-3">
-                    <Shield className="w-7 h-7 text-[#00a884]" />
-                  </div>
-                  <h2 className="text-base font-semibold text-white">No Conversations</h2>
-                  <p className="text-xs text-[#8696a0] max-w-xs mt-1.5 leading-relaxed">
-                    Start a secure 1:1 conversation with end-to-end Signal encryption.
-                  </p>
-                  <button
-                    onClick={() => setIsNewChatModalOpen(true)}
-                    className="mt-4 px-4 py-2 rounded-xl bg-[#00a884] hover:bg-[#02906f] text-white text-xs font-semibold transition"
-                  >
-                    Start New Chat
-                  </button>
+                <div className="p-8 text-center text-[#8696a0] text-sm">
+                  {searchFilter ? "No chats found." : "No chats yet. Start a conversation!"}
                 </div>
               ) : (
                 filteredChats.map((chat) => {
+                  const isPeerOnline = presence[chat.peerUserId]?.isOnline;
+                  const isPeerTypingNow = peerTyping[chat.peerUserId];
                   const isSelected = chat.id === activeChatId;
-                  const isOnline = presence[chat.id]?.isOnline;
-                  const isTyping = peerTyping[chat.id];
 
                   return (
                     <div
                       key={chat.id}
                       onClick={() => setActiveChat(chat.id)}
-                      className={`flex items-center gap-3 px-3.5 py-3 cursor-pointer border-b border-[#202c33] hover:bg-[#202c33] transition ${
-                        isSelected ? "bg-[#2a3942]" : ""
+                      className={`flex items-center gap-3 px-4 py-3 cursor-pointer select-none transition border-b border-[#222e35]/50 ${
+                        isSelected ? "bg-[#2a3942]" : "hover:bg-[#202c33]"
                       }`}
                     >
-                      {/* Contact Avatar */}
-                      <div className="w-12 h-12 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold text-base flex-shrink-0 relative">
-                        {chat.isGroup ? (
-                          <Users className="w-6 h-6" />
-                        ) : chat.peerDisplayName ? (
-                          chat.peerDisplayName.charAt(0).toUpperCase()
-                        ) : (
-                          <UserIcon className="w-6 h-6" />
-                        )}
-                        {isOnline && !chat.isGroup && (
-                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00a884] rounded-full border-2 border-[#111b21]" />
+                      {/* Avatar */}
+                      <div className="relative shrink-0">
+                        <div className="w-12 h-12 rounded-full bg-[#202c33] border border-[#2a3942] flex items-center justify-center text-base font-semibold text-[#00a884]">
+                          {chat.peerDisplayName
+                            ? chat.peerDisplayName.charAt(0).toUpperCase()
+                            : chat.isGroup
+                            ? <Users className="w-5 h-5" />
+                            : <UserIcon className="w-5 h-5" />}
+                        </div>
+                        {!chat.isGroup && isPeerOnline && (
+                          <span className="absolute bottom-0 right-0 w-3.5 h-3.5 rounded-full bg-[#00a884] border-2 border-[#111b21]" />
                         )}
                       </div>
 
-                      {/* Contact Details & Last Message */}
+                      {/* Content */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between mb-0.5">
-                          <span className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
-                            <span>{chat.peerDisplayName || chat.peerPhoneNumber || chat.id}</span>
-                            {chat.isGroup && (
-                              <span className="text-[10px] bg-[#2a3942] text-[#8696a0] px-1.5 py-0.2 rounded font-normal">
-                                Group
-                              </span>
-                            )}
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-semibold text-white truncate">
+                            {chat.peerDisplayName || chat.peerPhoneNumber || "Unknown"}
                           </span>
-                          <span className="text-[11px] text-[#8696a0] flex-shrink-0">
-                            {formatChatTime(chat.lastMessageTimestamp)}
-                          </span>
+                          {chat.lastMessageTimestamp > 0 && (
+                            <span className="text-[11px] text-[#8696a0] shrink-0 ml-2">
+                              {formatChatTime(chat.lastMessageTimestamp)}
+                            </span>
+                          )}
                         </div>
 
                         <div className="flex items-center justify-between">
-                          <span className="text-xs truncate pr-2">
-                            {isTyping ? (
-                              <span className="text-[#00a884] font-medium animate-pulse">
-                                typing...
-                              </span>
+                          <span className="text-xs text-[#8696a0] truncate">
+                            {isPeerTypingNow ? (
+                              <span className="text-[#00a884] font-medium">typing...</span>
                             ) : (
-                              <span className="text-[#8696a0]">{chat.lastMessageText}</span>
+                              chat.lastMessageText || "No messages yet"
                             )}
                           </span>
 
@@ -382,45 +445,123 @@ export const ChatListShell: React.FC = () => {
                 })
               )}
             </div>
-          </>
-        )}
-      </div>
 
-      {/* Right Canvas: Conversation View or Empty Placeholder */}
-      <div
-        className={`${
-          activeChat ? "flex" : "hidden md:flex"
-        } flex-1 h-full`}
-      >
-        {activeChat ? (
-          <ConversationView
-            chat={activeChat}
-            onBack={() => setActiveChat(null)}
-          />
-        ) : (
-          <div className="flex-1 h-full bg-[#222e35] flex flex-col items-center justify-center p-8 border-b-[6px] border-[#00a884] relative select-none">
-            <div className="max-w-md text-center flex flex-col items-center">
-              <div className="w-24 h-24 rounded-full bg-[#111b21] flex items-center justify-center mb-6 border border-[#2a3942] shadow-xl">
-                <Lock className="w-10 h-10 text-[#00a884]" />
+            {/* Background Radio Banner when listening and browsing chats */}
+            {isTunedIn && (
+              <div className="p-2.5 bg-[#111b21] border-t border-[#222e35] flex items-center justify-between text-xs select-none">
+                <div
+                  className="flex items-center gap-2 min-w-0 cursor-pointer flex-1"
+                  onClick={() => setCurrentTab("channels")}
+                  title="Click to view channel radio"
+                >
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                    <Radio className="w-3.5 h-3.5 animate-pulse" />
+                  </div>
+                  <div className="min-w-0 truncate">
+                    <div className="text-[11px] font-bold text-white truncate flex items-center gap-1">
+                      <span>Background Radio</span>
+                      <span className="text-[9px] bg-emerald-500/20 text-emerald-400 px-1 rounded">Live</span>
+                    </div>
+                    <div className="text-[10px] text-[#8696a0] truncate">
+                      {channels.find((c) => radioData[c.id]?.current_track)?.name || "Channel Station"}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  <button
+                    onClick={() => setMuted(!isMuted)}
+                    className="p-1.5 text-[#8696a0] hover:text-white rounded transition"
+                    title={isMuted ? "Unmute" : "Mute"}
+                  >
+                    {isMuted ? <VolumeX className="w-3.5 h-3.5 text-red-400" /> : <Volume2 className="w-3.5 h-3.5" />}
+                  </button>
+                  <button
+                    onClick={() => setTunedIn(false)}
+                    className="px-2 py-1 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded text-[10px] font-bold transition"
+                    title="Go off air (stop listening)"
+                  >
+                    Go Off Air
+                  </button>
+                </div>
               </div>
+            )}
+          </div>
 
-              <h1 className="text-3xl font-light text-[#e9edef] tracking-wide mb-3">
-                Chatapp for Web
-              </h1>
+          {/* Chat Conversation Canvas */}
+          <div
+            className={`${
+              activeChat ? "flex" : "hidden md:flex"
+            } flex-1 h-full`}
+          >
+            {activeChat ? (
+              <ConversationView
+                chat={activeChat}
+                onBack={() => setActiveChat(null)}
+              />
+            ) : (
+              <div className="flex-1 h-full bg-[#222e35] flex flex-col items-center justify-center p-8 border-b-[6px] border-[#00a884] relative select-none">
+                <div className="max-w-md text-center flex flex-col items-center">
+                  <div className="w-24 h-24 rounded-full bg-[#111b21] flex items-center justify-center mb-6 border border-[#2a3942] shadow-xl">
+                    <Lock className="w-10 h-10 text-[#00a884]" />
+                  </div>
 
-              <p className="text-sm text-[#8696a0] leading-relaxed mb-6">
-                Send and receive messages with zero-knowledge end-to-end encryption.
-                Messages never leave your device unencrypted.
+                  <h1 className="text-3xl font-light text-[#e9edef] tracking-wide mb-3">
+                    Chatapp for Web
+                  </h1>
+
+                  <p className="text-sm text-[#8696a0] leading-relaxed mb-6">
+                    Send and receive messages with zero-knowledge end-to-end encryption.
+                    Messages never leave your device unencrypted.
+                  </p>
+
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#111b21] border border-[#2a3942] text-xs text-[#8696a0]">
+                    <Lock className="w-3.5 h-3.5 text-[#00a884]" />
+                    <span>End-to-end encrypted with Signal Protocol</span>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        <div className={`flex-1 flex h-full overflow-hidden ${currentTab === "calls" ? "" : "hidden"}`}>
+          <div className="w-full md:w-[380px] md:min-w-[320px] h-full flex flex-col border-r border-[#222e35] bg-[#111b21]">
+            <CallHistoryView />
+          </div>
+          <div className="hidden md:flex flex-1 h-full bg-[#222e35] items-center justify-center p-8 border-b-[6px] border-[#00a884]">
+            <div className="max-w-md text-center">
+              <Phone className="w-16 h-16 text-[#00a884] mx-auto mb-4" />
+              <h2 className="text-xl font-bold text-white mb-2">Voice & Video Calls</h2>
+              <p className="text-xs text-[#8696a0]">
+                Select a contact or open a chat to place an end-to-end encrypted WebRTC audio or video call.
               </p>
-
-              <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-[#111b21] border border-[#2a3942] text-xs text-[#8696a0]">
-                <Lock className="w-3.5 h-3.5 text-[#00a884]" />
-                <span>End-to-end encrypted with Signal Protocol</span>
-              </div>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+
+      {/* Quick Switcher Modal (Ctrl+K) */}
+      {isQuickSwitcherOpen && (
+        <QuickSwitcherModal
+          channels={channels}
+          chats={chats}
+          onSelectChannel={(chanId) => {
+            setCurrentTab("channels");
+            setActiveChannelId(chanId);
+            transportInstance?.subscribeChannel(chanId);
+          }}
+          onSelectChat={(chatId) => {
+            setCurrentTab("chats");
+            setActiveChat(chatId);
+          }}
+          onClose={() => setIsQuickSwitcherOpen(false)}
+        />
+      )}
+
+      {/* New Channel Modal */}
+      {isNewChannelModalOpen && (
+        <NewChannelModal onClose={() => setIsNewChannelModalOpen(false)} />
+      )}
 
       {/* New Chat Modal */}
       <NewChatModal
@@ -433,6 +574,7 @@ export const ChatListShell: React.FC = () => {
         isOpen={isNewGroupModalOpen}
         onClose={() => setIsNewGroupModalOpen(false)}
         onGroupCreated={(groupChat) => {
+          setCurrentTab("chats");
           setActiveChat(groupChat.id);
         }}
       />

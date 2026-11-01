@@ -58,6 +58,12 @@ async def get_current_user(
             detail="User is banned",
         )
 
+    if getattr(user, "status", "active") != "active":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User account is disabled",
+        )
+
     return user
 
 

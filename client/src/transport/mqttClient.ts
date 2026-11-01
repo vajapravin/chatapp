@@ -4,6 +4,8 @@ import { SignalAdapter } from "../crypto/SignalAdapter";
 import { ChatItem, MessageItem, PollData, LocationData, ContactData, EventData, MediaAttachment } from "../storage/db";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
+import { useChannelStore } from "../store/channelStore";
+import { useRadioStore } from "../store/radioStore";
 import { callManager } from "../calls/CallManager";
 
 export class MqttTransport {
@@ -71,6 +73,7 @@ export class MqttTransport {
       // Subscribe to user mailbox and presence channels
       this.client?.subscribe(`u/${this.userId}/#`, { qos: 1 });
       this.client?.subscribe("p/#", { qos: 1 });
+      this.client?.subscribe(`sys/${this.userId}/kick`, { qos: 1 });
     });
 
     this.client.on("message", (topic, payload) => {
@@ -120,6 +123,14 @@ export class MqttTransport {
       const text = new TextDecoder().decode(rawPayload);
       const data = JSON.parse(text);
 
+      // System kick command
+      if (topic === `sys/${this.userId}/kick` || (topic.startsWith("sys/") && topic.endsWith("/kick"))) {
+        console.warn("[MQTT] Received administrative kick signal:", data);
+        useAuthStore.getState().logout();
+        alert("Your session has been terminated by an administrator.");
+        return;
+      }
+
       // 1. Server Acknowledgment
       if (topic === `u/${this.userId}/${this.deviceId}/ack`) {
         if (data.status === "server_ack" && data.id) {
@@ -147,7 +158,7 @@ export class MqttTransport {
         } else {
           // p/{userId}
           const { user_id, online, last_seen } = data;
-          if (user_id && user_id !== this.userId) {
+          if (user_id) {
             useChatStore.getState().setPresence(user_id, !!online, last_seen);
           }
         }
@@ -344,6 +355,43 @@ export class MqttTransport {
           }
         }
       }
+
+      // 4. Channel topics: ch/{channelId}/...
+      if (topic.startsWith("ch/")) {
+        const parts = topic.split("/");
+        if (parts.length >= 3) {
+          const channelId = parts[1];
+          const subtopic = parts.slice(2).join("/");
+
+          if (subtopic === "posts") {
+            const postItem = {
+              id: data.id,
+              channel_id: data.channel_id,
+              sender_user: data.sender_user,
+              sender_display_name: data.sender_display_name,
+              ciphertext: data.ciphertext,
+              created_at: new Date(data.created_at).getTime(),
+              edited_at: data.edited_at ? new Date(data.edited_at).getTime() : undefined,
+            };
+            useChannelStore.getState().addPost(channelId, postItem);
+          } else if (subtopic === "radio/state") {
+            const currentData = useRadioStore.getState().radioData[channelId] || {};
+            useRadioStore.getState().setRadioState(channelId, {
+              ...currentData,
+              ...data,
+              channel_id: channelId,
+            });
+          } else if (subtopic === "radio/queue") {
+            const currentData = useRadioStore.getState().radioData[channelId] || {};
+            useRadioStore.getState().setRadioState(channelId, {
+              ...currentData,
+              queue: Array.isArray(data) ? data : [],
+              channel_id: channelId,
+            });
+          }
+        }
+        return;
+      }
     } catch (e) {
       console.warn("[MQTT] Error processing message:", e);
     }
@@ -377,6 +425,16 @@ export class MqttTransport {
       JSON.stringify(receiptEnvelope),
       { qos: 1 }
     );
+  }
+
+  subscribeChannel(channelId: string) {
+    if (!this.client?.connected) return;
+    this.client.subscribe(`ch/${channelId}/#`, { qos: 1 });
+  }
+
+  unsubscribeChannel(channelId: string) {
+    if (!this.client?.connected) return;
+    this.client.unsubscribe(`ch/${channelId}/#`);
   }
 
   // 1:1 Message Sender

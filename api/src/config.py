@@ -55,6 +55,15 @@ class Settings(BaseSettings):
     LIVEKIT_API_KEY: str = ""
     LIVEKIT_API_SECRET: str = ""
 
+    # Phase 7: Admin, Invites, Radio, LLM
+    ADMIN_EMAIL: str = "admin@vajapravin.me"
+    INVITE_DEFAULT_EXPIRE_DAYS: int = 7
+    INVITE_MAX_EXPIRE_DAYS: int = 30
+    CHAT_BASE_URL: str = "https://chatapp.vajapravin.me"
+    YOUTUBE_API_KEY: str = ""
+    LLM_PROVIDER: str = "gemini"
+    GEMINI_API_KEY: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:5174",

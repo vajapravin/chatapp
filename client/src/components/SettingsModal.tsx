@@ -288,7 +288,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     }
   };
 
-  const isAdmin = user?.phone_number.endsWith("000") || (user as any)?.role === "admin";
+  const isAdmin = user?.phone_number?.endsWith("000") || (user as any)?.role === "admin";
 
   return (
     <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">

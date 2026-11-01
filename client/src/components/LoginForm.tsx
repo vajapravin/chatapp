@@ -8,23 +8,36 @@ interface LoginFormProps {
 }
 
 export const LoginForm: React.FC<LoginFormProps> = ({ onOtpRequested, onLinkCompanion }) => {
-  const [phoneNumber, setPhoneNumber] = useState("+10000000001");
-  const [email, setEmail] = useState("alice@example.com");
+  const [phoneNumber, setPhoneNumber] = useState("");
+  const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
-    if (!phoneNumber.trim()) {
-      setError("Please enter a valid phone number.");
+
+    const cleanPhone = phoneNumber.trim();
+    const cleanEmail = email.trim();
+
+    if (!cleanPhone && !cleanEmail) {
+      setError("Please enter your email address or phone number.");
       return;
+    }
+
+    let finalPhone = cleanPhone;
+    let finalEmail = cleanEmail;
+    if (cleanPhone.includes("@") && !finalEmail) {
+      finalEmail = cleanPhone;
+    }
+    if (!finalPhone && finalEmail) {
+      finalPhone = finalEmail;
     }
 
     setLoading(true);
     try {
-      await requestOtp(phoneNumber, email);
-      onOtpRequested(phoneNumber, email);
+      await requestOtp(finalPhone, finalEmail);
+      onOtpRequested(finalPhone, finalEmail);
     } catch (err: any) {
       setError(err.message || "Failed to dispatch verification code.");
     } finally {
@@ -53,29 +66,42 @@ export const LoginForm: React.FC<LoginFormProps> = ({ onOtpRequested, onLinkComp
       <form onSubmit={handleSubmit} className="space-y-5">
         <div>
           <label className="block text-xs font-semibold uppercase text-[#8696a0] mb-2 tracking-wider">
-            Phone Number (E.164)
+            Email Address (or Phone Number)
           </label>
           <input
-            type="tel"
-            value={phoneNumber}
-            onChange={(e) => setPhoneNumber(e.target.value)}
-            placeholder="+1234567890"
-            required
+            type="text"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@example.com"
             className="w-full px-4 py-3 rounded-xl bg-[#111b21] border border-[#2a3942] text-white focus:outline-none focus:border-[#00a884] transition"
           />
         </div>
 
         <div>
           <label className="block text-xs font-semibold uppercase text-[#8696a0] mb-2 tracking-wider">
-            Email Address (Optional / Recovery)
+            Phone Number (Optional)
           </label>
           <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="you@example.com"
+            type="tel"
+            value={phoneNumber}
+            onChange={(e) => setPhoneNumber(e.target.value)}
+            placeholder="+1234567890"
             className="w-full px-4 py-3 rounded-xl bg-[#111b21] border border-[#2a3942] text-white focus:outline-none focus:border-[#00a884] transition"
           />
+        </div>
+
+        <div className="flex justify-end gap-2 text-xs text-[#8696a0]">
+          <span>Quick fill:</span>
+          <button
+            type="button"
+            onClick={() => {
+              setPhoneNumber("+10000000001");
+              setEmail("alice@example.com");
+            }}
+            className="text-[#00a884] hover:underline cursor-pointer"
+          >
+            Alice Dev
+          </button>
         </div>
 
         <button

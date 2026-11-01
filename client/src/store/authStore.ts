@@ -2,10 +2,12 @@ import { create } from "zustand";
 
 export interface UserProfile {
   id: string;
-  phone_number: string;
+  phone_number?: string | null;
   email: string | null;
   display_name: string | null;
   avatar_url: string | null;
+  role?: string;
+  status?: string;
   created_at?: string;
 }
 

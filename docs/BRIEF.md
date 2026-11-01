@@ -182,6 +182,7 @@ chatapp/
 4. **Media:** encrypted chunked resumable uploads to MinIO, images, video, documents, voice notes with on-device transcription, stickers, GIFs.
 5. **Calls:** 1:1 WebRTC with Cloudflare TURN, mesh group calls, `calls-sfu` LiveKit profile, low-bandwidth handling.
 6. **Privacy and security:** privacy settings, block/report, silence unknown callers, 2-step PIN, passkeys, app lock, chat lock, safety numbers, linked devices, encrypted backups (MinIO + Google Drive), rate limiting, abuse heuristics, admin moderation page.
-7. **Hardening and extras:** `full` profile (HBase, Elasticsearch, Prometheus/Grafana/Loki), Electron shell, Playwright suite, load test script (Locust) for 1,000 concurrent MQTT clients, threat model, runbook.
+7. **Invite-only access, channels and radio:** invite-only email allowlist, Discord-style channels, Slack-style posts with syntax-highlighted code blocks, synchronized YouTube Music radio panel with server clock, and Ask LLM music curation.
+8. **Hardening and extras:** `full` profile (HBase, Elasticsearch, Prometheus/Grafana/Loki), Electron shell, Playwright suite, load test script (Locust) for 1,000 concurrent MQTT clients, threat model, runbook.
 
 For each phase: first list the files you will create or change, then implement, then run tests, then summarise what to deploy and any new `.env` values.

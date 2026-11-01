@@ -18,6 +18,9 @@ dependencies = [
     "nats-py>=2.7.0",
     "prometheus-client>=0.20.0",
     "chatapp-shared",
+    "ytmusicapi>=1.12.0",
+    "httpx>=0.27.0",
+    "aiomqtt>=2.0.0",
 ]
 
 [project.optional-dependencies]

@@ -5,12 +5,13 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class OtpRequest(BaseModel):
-    phone_number: str = Field(..., description="E.164 phone number, e.g. +1234567890")
+    phone_number: str | None = Field(default=None, description="E.164 phone number, e.g. +1234567890")
     email: str | None = Field(default=None, description="Optional email for notification/backup")
 
 
 class OtpVerifyRequest(BaseModel):
-    phone_number: str = Field(..., description="E.164 phone number")
+    phone_number: str | None = Field(default=None, description="E.164 phone number or identifier")
+    email: str | None = Field(default=None, description="Optional email address")
     code: str = Field(..., min_length=6, max_length=6, description="6-digit verification code")
     device_name: str | None = Field(default="Web Browser", description="Descriptive device name")
 
@@ -32,10 +33,12 @@ class TokenRefreshRequest(BaseModel):
 
 class UserResponse(BaseModel):
     id: str
-    phone_number: str
+    phone_number: str | None = None
     email: str | None = None
     display_name: str | None = None
     avatar_url: str | None = None
+    role: str = "user"
+    status: str = "active"
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

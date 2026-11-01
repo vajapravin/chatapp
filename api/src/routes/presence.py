@@ -2,6 +2,7 @@ import json
 import logging
 from datetime import UTC, datetime
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 import redis.asyncio as aioredis
 
 from ..config import settings
@@ -11,6 +12,49 @@ from .keys import get_current_user_and_device
 
 logger = logging.getLogger("chatapp.api.presence")
 router = APIRouter(prefix="/v1/presence", tags=["Presence"])
+
+
+class BatchPresenceRequest(BaseModel):
+    user_ids: list[str]
+
+
+@router.post("/batch")
+async def get_batch_presence(
+    req: BatchPresenceRequest,
+    auth: tuple[User, int] = Depends(get_current_user_and_device),
+    redis: aioredis.Redis = Depends(get_redis_client),
+) -> dict[str, dict]:
+    """Retrieve online and last_seen presence for a list of user IDs in bulk."""
+    requester, _ = auth
+    user_ids = list(set(req.user_ids))
+    if not user_ids:
+        return {}
+
+    pipe = redis.pipeline()
+    for uid in user_ids:
+        pipe.get(f"presence:{uid}")
+    raw_results = await pipe.execute()
+
+    results: dict[str, dict] = {}
+    for uid, raw in zip(user_ids, raw_results, strict=False):
+        if uid == requester.id:
+            results[uid] = {"online": True, "last_seen": int(datetime.now(UTC).timestamp())}
+            continue
+
+        if not raw:
+            results[uid] = {"online": False, "last_seen": None}
+            continue
+
+        try:
+            data = json.loads(raw)
+            results[uid] = {
+                "online": bool(data.get("online", False)),
+                "last_seen": data.get("last_seen"),
+            }
+        except Exception:
+            results[uid] = {"online": False, "last_seen": None}
+
+    return results
 
 
 @router.get("/{target_user_id}")

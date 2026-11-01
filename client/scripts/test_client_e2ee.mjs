@@ -1,5 +1,6 @@
 import * as signal from "@privacyresearch/libsignal-protocol-typescript";
 import mqtt from "mqtt";
+import { execSync } from "child_process";
 
 const API_BASE = "http://localhost:8001";
 const MQTT_URL = "mqtt://localhost:1883";
@@ -47,10 +48,19 @@ async function loginUser(phoneNumber) {
     body: JSON.stringify({ phone_number: phoneNumber }),
   });
 
+  let code = "123456";
+  try {
+    const raw = execSync(`sudo docker exec redis redis-cli -p 6380 get "otp:${phoneNumber}"`).toString().trim();
+    if (raw) {
+      const data = JSON.parse(raw);
+      if (data.code) code = data.code;
+    }
+  } catch {}
+
   const res = await fetch(`${API_BASE}/v1/auth/otp/verify`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ phone_number: phoneNumber, code: "123456" }),
+    body: JSON.stringify({ phone_number: phoneNumber, code }),
   });
 
   if (!res.ok) {
