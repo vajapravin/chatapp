@@ -1,28 +1,4 @@
 services:
-  postgres:
-    image: postgres:16-alpine
-    container_name: chatapp-postgres
-    profiles: ["core", "full"]
-    mem_limit: 256m
-    command: ["postgres", "-p", "5435"]
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-chatapp}
-      POSTGRES_USER: ${POSTGRES_USER:-chatapp}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}
-      PGPORT: "5435"
-    ports:
-      - "${POSTGRES_PORT:-5435}:5435"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-      - ./deploy/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -p 5435 -U ${POSTGRES_USER:-chatapp} -d ${POSTGRES_DB:-chatapp}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
-    networks:
-      - chatnet
-
   redis:
     image: redis:7-alpine
     container_name: chatapp-redis
@@ -68,14 +44,12 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5435/${POSTGRES_DB:-chatapp}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
       REDIS_URL: redis://redis:6380/0
       NATS_URL: nats://nats:4222
     ports:
       - "${API_PORT:-8001}:8001"
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -140,13 +114,11 @@ services:
       MQTT_USER: router
       JWT_SECRET_KEY: ${JWT_SECRET_KEY:-dev-insecure-secret-key-change-in-production-12345678}
       NATS_URL: nats://nats:4222
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5435/${POSTGRES_DB:-chatapp}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
       REDIS_URL: redis://redis:6380/0
     depends_on:
       mosquitto:
         condition: service_started
-      postgres:
-        condition: service_healthy
       nats:
         condition: service_healthy
     networks:
@@ -182,12 +154,10 @@ services:
     mem_limit: 64m
     environment:
       NATS_URL: nats://nats:4222
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5435/${POSTGRES_DB:-chatapp}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-chatapp}:${POSTGRES_PASSWORD:-chatapp_secret_change_in_production}@postgres:5432/${POSTGRES_DB:-chatapp}
       VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
     depends_on:
       nats:
-        condition: service_healthy
-      postgres:
         condition: service_healthy
     networks:
       - chatnet
@@ -197,7 +167,6 @@ networks:
     driver: bridge
 
 volumes:
-  postgres_data:
   redis_data:
   mosquitto_data:
   mosquitto_log:
