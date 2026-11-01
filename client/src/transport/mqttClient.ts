@@ -4,6 +4,7 @@ import { SignalAdapter } from "../crypto/SignalAdapter";
 import { ChatItem, MessageItem, PollData, LocationData, ContactData, EventData, MediaAttachment } from "../storage/db";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
+import { callManager } from "../calls/CallManager";
 
 export class MqttTransport {
   private client: MqttClient | null = null;
@@ -186,8 +187,8 @@ export class MqttTransport {
           return;
         }
 
-        // C. MESSAGE envelope (type 1)
-        if (envelope.type === 1 && this.signalAdapter) {
+        // C. MESSAGE envelope (type 1) or CALL_SIGNAL envelope (type 4)
+        if ((envelope.type === 1 || envelope.type === 4) && this.signalAdapter) {
           const senderId = envelope.sender_user;
           const isGroup = !!envelope.group_id;
           const chatId = isGroup ? envelope.group_id : senderId;
@@ -212,6 +213,12 @@ export class MqttTransport {
           }
 
           const innerMsg = JSON.parse(decryptedJson);
+
+          // Handle WebRTC Call Signaling (type 4 or action payload)
+          if (envelope.type === 4 || innerMsg.type === "call_signal") {
+            await callManager.handleSignal(senderId, innerMsg);
+            return;
+          }
 
           // Handle reaction
           if (innerMsg.reaction) {
@@ -877,6 +884,58 @@ export class MqttTransport {
         text: "You deleted this message",
         isDeleted: true,
       });
+    }
+  }
+
+  async sendCallSignal(
+    recipientId: string,
+    signalData: any,
+    groupId?: string
+  ): Promise<void> {
+    if (!this.signalAdapter || !this.client?.connected) {
+      console.warn("Cannot send call signal: transport not ready");
+      return;
+    }
+
+    const jsonStr = JSON.stringify(signalData);
+
+    if (groupId) {
+      const ciphertext = await this.signalAdapter.encryptGroupMessage(groupId, jsonStr);
+      const envelope = {
+        id: ulid(),
+        version: 1,
+        sender_user: this.userId,
+        sender_device: this.deviceId,
+        recipient_user: groupId,
+        recipient_device: 1,
+        group_id: groupId,
+        type: 4, // CALL_SIGNAL
+        ciphertext,
+        timestamp: Date.now(),
+      };
+      this.client.publish(
+        `out/${this.userId}/${this.deviceId}`,
+        JSON.stringify(envelope),
+        { qos: 1 }
+      );
+    } else {
+      const encrypted = await this.signalAdapter.encrypt(recipientId, 1, jsonStr);
+      const envelope = {
+        id: ulid(),
+        version: 1,
+        sender_user: this.userId,
+        sender_device: this.deviceId,
+        recipient_user: recipientId,
+        recipient_device: 1,
+        type: 4, // CALL_SIGNAL
+        ciphertext: btoa(JSON.stringify(encrypted)),
+        timestamp: Date.now(),
+      };
+      this.client.publish(
+        `out/${this.userId}/${this.deviceId}`,
+        JSON.stringify(envelope),
+        { qos: 1 }
+      );
     }
   }
 

@@ -1,4 +1,5 @@
 from .auth import router as auth_router
+from .calls import router as calls_router
 from .groups import router as groups_router
 from .health import router as health_router
 from .keys import router as keys_router
@@ -9,6 +10,7 @@ from .users import router as users_router
 
 __all__ = [
     "auth_router",
+    "calls_router",
     "groups_router",
     "health_router",
     "keys_router",

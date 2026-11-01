@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from .config import settings
 from .routes import (
     auth_router,
+    calls_router,
     groups_router,
     health_router,
     keys_router,
@@ -53,6 +54,7 @@ app.include_router(users_router)
 app.include_router(keys_router)
 app.include_router(groups_router)
 app.include_router(media_router)
+app.include_router(calls_router)
 app.include_router(presence_router)
 app.include_router(push_router)
 

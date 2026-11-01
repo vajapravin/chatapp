@@ -9,12 +9,14 @@ import {
   Mic,
   MoreVertical,
   Paperclip,
+  Phone,
   Pin,
   Send,
   Smile,
   Sparkles,
   User as UserIcon,
   Users,
+  Video,
   X,
 } from "lucide-react";
 import {
@@ -37,6 +39,7 @@ import { MediaLightbox } from "./MediaLightbox";
 import { VoiceNoteRecorder } from "./VoiceNoteRecorder";
 import { StickerGifPicker } from "./StickerGifPicker";
 import { MediaUploadManager } from "../media/MediaUploadManager";
+import { callManager } from "../calls/CallManager";
 
 interface ConversationViewProps {
   chat: ChatItem;
@@ -527,6 +530,34 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
             <Lock className="w-3.5 h-3.5 text-[#00a884]" />
             <span className="hidden sm:inline">End-to-End Encrypted</span>
           </div>
+          <button
+            onClick={() =>
+              callManager.startCall(
+                chat.id,
+                chat.peerDisplayName,
+                "video",
+                chat.isGroup ? chat.id : undefined
+              )
+            }
+            title="Start Video Call"
+            className="p-2 hover:bg-[#374248] text-[#aebac1] hover:text-[#00a884] rounded-full transition"
+          >
+            <Video className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() =>
+              callManager.startCall(
+                chat.id,
+                chat.peerDisplayName,
+                "voice",
+                chat.isGroup ? chat.id : undefined
+              )
+            }
+            title="Start Voice Call"
+            className="p-2 hover:bg-[#374248] text-[#aebac1] hover:text-[#00a884] rounded-full transition"
+          >
+            <Phone className="w-5 h-5" />
+          </button>
           <button className="p-2 hover:bg-[#374248] rounded-full transition">
             <MoreVertical className="w-5 h-5" />
           </button>

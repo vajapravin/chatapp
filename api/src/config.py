@@ -40,6 +40,20 @@ class Settings(BaseSettings):
     MEDIA_STORAGE_DIR: str = "./data/media"
     MAX_MEDIA_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GB
 
+    # WebRTC Calling & TURN Providers
+    TURN_PROVIDER: Literal["cloudflare", "coturn", "stun_only"] = "stun_only"
+    CF_TURN_KEY_ID: str = ""
+    CF_TURN_API_TOKEN: str = ""
+    COTURN_SHARED_SECRET: str = ""
+    COTURN_HOST: str = ""
+    COTURN_PORT: int = 3478
+    COTURN_TLS_PORT: int = 5349
+
+    # LiveKit SFU Profile
+    LIVEKIT_URL: str = ""
+    LIVEKIT_API_KEY: str = ""
+    LIVEKIT_API_SECRET: str = ""
+
     # CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:5174",

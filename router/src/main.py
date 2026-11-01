@@ -117,8 +117,8 @@ async def run_router():
                     recipient_user = env_data.get("recipient_user", "")
                     recipient_device = env_data.get("recipient_device", 1)
 
-                    # 1. MESSAGE / SENDER_KEY_DISTRIBUTION / EDIT / DELETE / REACTION (type 1, 5, 6, 7, 8)
-                    if env_type in (1, 5, 6, 7, 8):
+                    # 1. MESSAGE / CALL_SIGNAL / SENDER_KEY_DISTRIBUTION / EDIT / DELETE / REACTION (type 1, 4, 5, 6, 7, 8)
+                    if env_type in (1, 4, 5, 6, 7, 8):
                         group_id = env_data.get("group_id")
 
                         # A. Group message fan-out

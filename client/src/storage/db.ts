@@ -32,6 +32,20 @@ export interface EventData {
   location?: string;
 }
 
+export interface CallLogItem {
+  id: string; // ULID
+  peerId: string;
+  peerDisplayName?: string;
+  peerPhoneNumber?: string;
+  isGroup?: boolean;
+  groupId?: string;
+  direction: "incoming" | "outgoing";
+  callType: "voice" | "video";
+  status: "completed" | "missed" | "rejected" | "busy";
+  startTime: number;
+  durationSeconds: number;
+}
+
 export interface MediaAttachment {
   url: string;
   mimeType: string;
@@ -118,7 +132,7 @@ class LocalDB {
 
   private openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open("chatapp_local_v2", 2);
+      const request = indexedDB.open("chatapp_local_v3", 3);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains("chats")) {
@@ -136,9 +150,55 @@ class LocalDB {
         if (!db.objectStoreNames.contains("media_uploads")) {
           db.createObjectStore("media_uploads", { keyPath: "id" });
         }
+        if (!db.objectStoreNames.contains("call_logs")) {
+          const callStore = db.createObjectStore("call_logs", { keyPath: "id" });
+          callStore.createIndex("peerId", "peerId", { unique: false });
+          callStore.createIndex("startTime", "startTime", { unique: false });
+          callStore.createIndex("status", "status", { unique: false });
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  async saveCallLog(callLog: CallLogItem): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("call_logs", "readwrite");
+      const store = tx.objectStore("call_logs");
+      store.put(callLog);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async getCallLogs(): Promise<CallLogItem[]> {
+    if (!this.dbPromise) return [];
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("call_logs", "readonly");
+      const store = tx.objectStore("call_logs");
+      const req = store.getAll();
+      req.onsuccess = () => {
+        const list: CallLogItem[] = req.result || [];
+        list.sort((a, b) => b.startTime - a.startTime);
+        resolve(list);
+      };
+      req.onerror = () => resolve([]);
+    });
+  }
+
+  async clearCallLogs(): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("call_logs", "readwrite");
+      const store = tx.objectStore("call_logs");
+      store.clear();
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
     });
   }
 

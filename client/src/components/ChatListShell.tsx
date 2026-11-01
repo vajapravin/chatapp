@@ -3,8 +3,10 @@ import { format, isToday, isYesterday } from "date-fns";
 import {
   Lock,
   LogOut,
+  MessageSquare,
   MessageSquarePlus,
   MoreVertical,
+  Phone,
   Search,
   Shield,
   User as UserIcon,
@@ -13,10 +15,14 @@ import {
 import { fetchCurrentUser } from "../services/api";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
+import { useCallStore } from "../store/callStore";
 import { initMqttTransport, transportInstance } from "../transport/mqttClient";
 import { ConversationView } from "./ConversationView";
 import { NewChatModal } from "./NewChatModal";
 import { NewGroupModal } from "./NewGroupModal";
+import { IncomingCallModal } from "./IncomingCallModal";
+import { ActiveCallModal } from "./ActiveCallModal";
+import { CallHistoryView } from "./CallHistoryView";
 
 function formatChatTime(timestamp: number): string {
   const date = new Date(timestamp);
@@ -43,6 +49,17 @@ export const ChatListShell: React.FC = () => {
   const [searchFilter, setSearchFilter] = useState("");
   const [isNewChatModalOpen, setIsNewChatModalOpen] = useState(false);
   const [isNewGroupModalOpen, setIsNewGroupModalOpen] = useState(false);
+  const [currentTab, setCurrentTab] = useState<"chats" | "calls">("chats");
+
+  const { callLogs, loadCallLogs } = useCallStore();
+  const missedCount = useMemo(
+    () => callLogs.filter((l) => l.status === "missed" && l.direction === "incoming").length,
+    [callLogs]
+  );
+
+  useEffect(() => {
+    loadCallLogs();
+  }, [loadCallLogs]);
 
   // Fetch user profile on mount
   useEffect(() => {
@@ -144,105 +161,142 @@ export const ChatListShell: React.FC = () => {
           </div>
         </div>
 
-        {/* Search Bar */}
-        <div className="px-3 py-2 border-b border-[#222e35]">
-          <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-[#202c33] text-[#8696a0]">
-            <Search className="w-4 h-4 text-[#8696a0]" />
-            <input
-              type="text"
-              value={searchFilter}
-              onChange={(e) => setSearchFilter(e.target.value)}
-              placeholder="Search or start a new chat"
-              className="w-full bg-transparent text-sm text-white focus:outline-none placeholder-[#8696a0]"
-            />
-          </div>
+        {/* Navigation Tabs: Chats vs Calls */}
+        <div className="flex items-center border-b border-[#222e35] bg-[#202c33]/40">
+          <button
+            onClick={() => setCurrentTab("chats")}
+            className={`flex-1 py-2.5 flex items-center justify-center gap-2 text-xs font-semibold transition border-b-2 ${
+              currentTab === "chats"
+                ? "border-[#00a884] text-[#00a884]"
+                : "border-transparent text-[#8696a0] hover:text-white"
+            }`}
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>Chats</span>
+          </button>
+          <button
+            onClick={() => setCurrentTab("calls")}
+            className={`flex-1 py-2.5 flex items-center justify-center gap-2 text-xs font-semibold transition border-b-2 ${
+              currentTab === "calls"
+                ? "border-[#00a884] text-[#00a884]"
+                : "border-transparent text-[#8696a0] hover:text-white"
+            }`}
+          >
+            <Phone className="w-4 h-4" />
+            <span>Calls</span>
+            {missedCount > 0 && (
+              <span className="bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.2 rounded-full">
+                {missedCount}
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Chats Scroll Area */}
-        <div className="flex-1 overflow-y-auto">
-          {filteredChats.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center p-6 text-center">
-              <div className="w-14 h-14 rounded-full bg-[#202c33] flex items-center justify-center mb-3">
-                <Shield className="w-7 h-7 text-[#00a884]" />
+        {currentTab === "calls" ? (
+          <CallHistoryView />
+        ) : (
+          <>
+            {/* Search Bar */}
+            <div className="px-3 py-2 border-b border-[#222e35]">
+              <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-[#202c33] text-[#8696a0]">
+                <Search className="w-4 h-4 text-[#8696a0]" />
+                <input
+                  type="text"
+                  value={searchFilter}
+                  onChange={(e) => setSearchFilter(e.target.value)}
+                  placeholder="Search or start a new chat"
+                  className="w-full bg-transparent text-sm text-white focus:outline-none placeholder-[#8696a0]"
+                />
               </div>
-              <h2 className="text-base font-semibold text-white">No Conversations</h2>
-              <p className="text-xs text-[#8696a0] max-w-xs mt-1.5 leading-relaxed">
-                Start a secure 1:1 conversation with end-to-end Signal encryption.
-              </p>
-              <button
-                onClick={() => setIsNewChatModalOpen(true)}
-                className="mt-4 px-4 py-2 rounded-xl bg-[#00a884] hover:bg-[#02906f] text-white text-xs font-semibold transition"
-              >
-                Start New Chat
-              </button>
             </div>
-          ) : (
-            filteredChats.map((chat) => {
-              const isSelected = chat.id === activeChatId;
-              const isOnline = presence[chat.id]?.isOnline;
-              const isTyping = peerTyping[chat.id];
 
-              return (
-                <div
-                  key={chat.id}
-                  onClick={() => setActiveChat(chat.id)}
-                  className={`flex items-center gap-3 px-3.5 py-3 cursor-pointer border-b border-[#202c33] hover:bg-[#202c33] transition ${
-                    isSelected ? "bg-[#2a3942]" : ""
-                  }`}
-                >
-                  {/* Contact Avatar */}
-                  <div className="w-12 h-12 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold text-base flex-shrink-0 relative">
-                    {chat.isGroup ? (
-                      <Users className="w-6 h-6" />
-                    ) : chat.peerDisplayName ? (
-                      chat.peerDisplayName.charAt(0).toUpperCase()
-                    ) : (
-                      <UserIcon className="w-6 h-6" />
-                    )}
-                    {isOnline && !chat.isGroup && (
-                      <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00a884] rounded-full border-2 border-[#111b21]" />
-                    )}
+            {/* Chats Scroll Area */}
+            <div className="flex-1 overflow-y-auto">
+              {filteredChats.length === 0 ? (
+                <div className="h-full flex flex-col items-center justify-center p-6 text-center">
+                  <div className="w-14 h-14 rounded-full bg-[#202c33] flex items-center justify-center mb-3">
+                    <Shield className="w-7 h-7 text-[#00a884]" />
                   </div>
-
-                  {/* Contact Details & Last Message */}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between mb-0.5">
-                      <span className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
-                        <span>{chat.peerDisplayName || chat.peerPhoneNumber || chat.id}</span>
-                        {chat.isGroup && (
-                          <span className="text-[10px] bg-[#2a3942] text-[#8696a0] px-1.5 py-0.2 rounded font-normal">
-                            Group
-                          </span>
-                        )}
-                      </span>
-                      <span className="text-[11px] text-[#8696a0] flex-shrink-0">
-                        {formatChatTime(chat.lastMessageTimestamp)}
-                      </span>
-                    </div>
-
-                    <div className="flex items-center justify-between">
-                      <span className="text-xs truncate pr-2">
-                        {isTyping ? (
-                          <span className="text-[#00a884] font-medium animate-pulse">
-                            typing...
-                          </span>
-                        ) : (
-                          <span className="text-[#8696a0]">{chat.lastMessageText}</span>
-                        )}
-                      </span>
-
-                      {chat.unreadCount > 0 && (
-                        <span className="bg-[#00a884] text-[#111b21] text-[11px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
-                          {chat.unreadCount}
-                        </span>
-                      )}
-                    </div>
-                  </div>
+                  <h2 className="text-base font-semibold text-white">No Conversations</h2>
+                  <p className="text-xs text-[#8696a0] max-w-xs mt-1.5 leading-relaxed">
+                    Start a secure 1:1 conversation with end-to-end Signal encryption.
+                  </p>
+                  <button
+                    onClick={() => setIsNewChatModalOpen(true)}
+                    className="mt-4 px-4 py-2 rounded-xl bg-[#00a884] hover:bg-[#02906f] text-white text-xs font-semibold transition"
+                  >
+                    Start New Chat
+                  </button>
                 </div>
-              );
-            })
-          )}
-        </div>
+              ) : (
+                filteredChats.map((chat) => {
+                  const isSelected = chat.id === activeChatId;
+                  const isOnline = presence[chat.id]?.isOnline;
+                  const isTyping = peerTyping[chat.id];
+
+                  return (
+                    <div
+                      key={chat.id}
+                      onClick={() => setActiveChat(chat.id)}
+                      className={`flex items-center gap-3 px-3.5 py-3 cursor-pointer border-b border-[#202c33] hover:bg-[#202c33] transition ${
+                        isSelected ? "bg-[#2a3942]" : ""
+                      }`}
+                    >
+                      {/* Contact Avatar */}
+                      <div className="w-12 h-12 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center font-semibold text-base flex-shrink-0 relative">
+                        {chat.isGroup ? (
+                          <Users className="w-6 h-6" />
+                        ) : chat.peerDisplayName ? (
+                          chat.peerDisplayName.charAt(0).toUpperCase()
+                        ) : (
+                          <UserIcon className="w-6 h-6" />
+                        )}
+                        {isOnline && !chat.isGroup && (
+                          <span className="absolute bottom-0 right-0 w-3 h-3 bg-[#00a884] rounded-full border-2 border-[#111b21]" />
+                        )}
+                      </div>
+
+                      {/* Contact Details & Last Message */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-0.5">
+                          <span className="text-sm font-semibold text-white truncate flex items-center gap-1.5">
+                            <span>{chat.peerDisplayName || chat.peerPhoneNumber || chat.id}</span>
+                            {chat.isGroup && (
+                              <span className="text-[10px] bg-[#2a3942] text-[#8696a0] px-1.5 py-0.2 rounded font-normal">
+                                Group
+                              </span>
+                            )}
+                          </span>
+                          <span className="text-[11px] text-[#8696a0] flex-shrink-0">
+                            {formatChatTime(chat.lastMessageTimestamp)}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between">
+                          <span className="text-xs truncate pr-2">
+                            {isTyping ? (
+                              <span className="text-[#00a884] font-medium animate-pulse">
+                                typing...
+                              </span>
+                            ) : (
+                              <span className="text-[#8696a0]">{chat.lastMessageText}</span>
+                            )}
+                          </span>
+
+                          {chat.unreadCount > 0 && (
+                            <span className="bg-[#00a884] text-[#111b21] text-[11px] font-bold px-1.5 py-0.5 rounded-full min-w-[20px] text-center">
+                              {chat.unreadCount}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Right Canvas: Conversation View or Empty Placeholder */}
@@ -295,6 +349,10 @@ export const ChatListShell: React.FC = () => {
           setActiveChat(groupChat.id);
         }}
       />
+
+      {/* Call Modals */}
+      <IncomingCallModal />
+      <ActiveCallModal />
     </div>
   );
 };
