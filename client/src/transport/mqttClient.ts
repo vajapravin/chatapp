@@ -1,7 +1,7 @@
 import mqtt, { MqttClient } from "mqtt";
 import { ulid } from "ulidx";
 import { SignalAdapter } from "../crypto/SignalAdapter";
-import { ChatItem, MessageItem, PollData, LocationData, ContactData, EventData } from "../storage/db";
+import { ChatItem, MessageItem, PollData, LocationData, ContactData, EventData, MediaAttachment } from "../storage/db";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
 
@@ -275,6 +275,7 @@ export class MqttTransport {
             status: "delivered",
             replyTo: innerMsg.replyTo,
             messageType: innerMsg.messageType || "text",
+            media: innerMsg.media,
             poll: innerMsg.poll,
             location: innerMsg.location,
             contact: innerMsg.contact,
@@ -298,6 +299,12 @@ export class MqttTransport {
           if (newMsg.messageType === "location") displaySummary = "📍 Location";
           if (newMsg.messageType === "contact") displaySummary = `👤 Contact: ${newMsg.contact?.name}`;
           if (newMsg.messageType === "event") displaySummary = `📅 Event: ${newMsg.event?.title}`;
+          if (newMsg.messageType === "image") displaySummary = "📷 Photo" + (newMsg.text ? `: ${newMsg.text}` : "");
+          if (newMsg.messageType === "video") displaySummary = "🎥 Video" + (newMsg.text ? `: ${newMsg.text}` : "");
+          if (newMsg.messageType === "audio") displaySummary = "🎤 Voice message";
+          if (newMsg.messageType === "document") displaySummary = `📄 ${newMsg.media?.fileName || "Document"}`;
+          if (newMsg.messageType === "sticker") displaySummary = "Sticker";
+          if (newMsg.messageType === "gif") displaySummary = "GIF";
           if (newMsg.viewOnce) displaySummary = "🔒 View-once message";
 
           const updatedChat: ChatItem = {
@@ -364,6 +371,7 @@ export class MqttTransport {
     text: string,
     richData?: {
       messageType?: MessageItem["messageType"];
+      media?: MediaAttachment;
       poll?: PollData;
       location?: LocationData;
       contact?: ContactData;
@@ -386,6 +394,7 @@ export class MqttTransport {
       text,
       replyTo: richData?.replyTo,
       messageType: richData?.messageType || "text",
+      media: richData?.media,
       poll: richData?.poll,
       location: richData?.location,
       contact: richData?.contact,
@@ -425,6 +434,7 @@ export class MqttTransport {
       status: "pending",
       replyTo: richData?.replyTo,
       messageType: richData?.messageType || "text",
+      media: richData?.media,
       poll: richData?.poll,
       location: richData?.location,
       contact: richData?.contact,
@@ -442,6 +452,12 @@ export class MqttTransport {
     if (newMsg.messageType === "location") displaySummary = "📍 Location";
     if (newMsg.messageType === "contact") displaySummary = `👤 Contact: ${newMsg.contact?.name}`;
     if (newMsg.messageType === "event") displaySummary = `📅 Event: ${newMsg.event?.title}`;
+    if (newMsg.messageType === "image") displaySummary = "📷 Photo" + (newMsg.text ? `: ${newMsg.text}` : "");
+    if (newMsg.messageType === "video") displaySummary = "🎥 Video" + (newMsg.text ? `: ${newMsg.text}` : "");
+    if (newMsg.messageType === "audio") displaySummary = "🎤 Voice message";
+    if (newMsg.messageType === "document") displaySummary = `📄 ${newMsg.media?.fileName || "Document"}`;
+    if (newMsg.messageType === "sticker") displaySummary = "Sticker";
+    if (newMsg.messageType === "gif") displaySummary = "GIF";
     if (newMsg.viewOnce) displaySummary = "🔒 View-once message";
 
     const existingChat = store.chats.find((c) => c.id === recipient.id);
@@ -479,6 +495,7 @@ export class MqttTransport {
     text: string,
     richData?: {
       messageType?: MessageItem["messageType"];
+      media?: MediaAttachment;
       poll?: PollData;
       location?: LocationData;
       contact?: ContactData;
@@ -533,6 +550,7 @@ export class MqttTransport {
       text,
       replyTo: richData?.replyTo,
       messageType: richData?.messageType || "text",
+      media: richData?.media,
       poll: richData?.poll,
       location: richData?.location,
       contact: richData?.contact,
@@ -578,6 +596,7 @@ export class MqttTransport {
       status: "pending",
       replyTo: richData?.replyTo,
       messageType: richData?.messageType || "text",
+      media: richData?.media,
       poll: richData?.poll,
       location: richData?.location,
       contact: richData?.contact,
@@ -595,6 +614,12 @@ export class MqttTransport {
     if (newMsg.messageType === "location") displaySummary = "📍 Location";
     if (newMsg.messageType === "contact") displaySummary = `👤 Contact: ${newMsg.contact?.name}`;
     if (newMsg.messageType === "event") displaySummary = `📅 Event: ${newMsg.event?.title}`;
+    if (newMsg.messageType === "image") displaySummary = "📷 Photo" + (newMsg.text ? `: ${newMsg.text}` : "");
+    if (newMsg.messageType === "video") displaySummary = "🎥 Video" + (newMsg.text ? `: ${newMsg.text}` : "");
+    if (newMsg.messageType === "audio") displaySummary = "🎤 Voice message";
+    if (newMsg.messageType === "document") displaySummary = `📄 ${newMsg.media?.fileName || "Document"}`;
+    if (newMsg.messageType === "sticker") displaySummary = "Sticker";
+    if (newMsg.messageType === "gif") displaySummary = "GIF";
     if (newMsg.viewOnce) displaySummary = "🔒 View-once message";
 
     const updatedChat: ChatItem = {

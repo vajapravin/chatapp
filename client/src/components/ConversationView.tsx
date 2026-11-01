@@ -2,31 +2,46 @@ import React, { useEffect, useRef, useState } from "react";
 import { format } from "date-fns";
 import {
   ArrowLeft,
+  FileText,
+  Image as ImageIcon,
   Info,
   Lock,
+  Mic,
   MoreVertical,
   Paperclip,
   Pin,
   Send,
   Smile,
+  Sparkles,
   User as UserIcon,
   Users,
   X,
 } from "lucide-react";
-import { ChatItem, ContactData, EventData, LocationData, MessageItem, PollData } from "../storage/db";
+import {
+  ChatItem,
+  ContactData,
+  EventData,
+  LocationData,
+  MediaAttachment,
+  MessageItem,
+  PollData,
+} from "../storage/db";
 import { useAuthStore } from "../store/authStore";
 import { useChatStore } from "../store/chatStore";
 import { getMqttTransport } from "../transport/mqttClient";
 import { MessageBubble } from "./MessageBubble";
 import { GroupInfoDrawer } from "./GroupInfoDrawer";
 import { RichMessageComposer } from "./RichMessageComposer";
+import { MediaPreviewModal } from "./MediaPreviewModal";
+import { MediaLightbox } from "./MediaLightbox";
+import { VoiceNoteRecorder } from "./VoiceNoteRecorder";
+import { StickerGifPicker } from "./StickerGifPicker";
+import { MediaUploadManager } from "../media/MediaUploadManager";
 
 interface ConversationViewProps {
   chat: ChatItem;
   onBack?: () => void;
 }
-
-const QUICK_EMOJIS = ["❤️", "👍", "😂", "🔥", "🎉", "🙏", "😊", "👋"];
 
 export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack }) => {
   const currentUserId = useAuthStore((s) => s.userId) || "";
@@ -38,13 +53,24 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
   const [editingMessage, setEditingMessage] = useState<MessageItem | null>(null);
   const [editText, setEditText] = useState("");
   const [deleteCandidate, setDeleteCandidate] = useState<MessageItem | null>(null);
-  const [showEmojiBar, setShowEmojiBar] = useState(false);
   const [isViewOnce, setIsViewOnce] = useState(false);
   const [isGroupDrawerOpen, setIsGroupDrawerOpen] = useState(false);
   const [isRichComposerOpen, setIsRichComposerOpen] = useState(false);
 
+  // Phase 4 Media State
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showStickerPicker, setShowStickerPicker] = useState(false);
+  const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [pendingMediaFile, setPendingMediaFile] = useState<File | null>(null);
+  const [isMediaPreviewOpen, setIsMediaPreviewOpen] = useState(false);
+  const [activeLightboxMedia, setActiveLightboxMedia] = useState<MediaAttachment | null>(null);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const typingTimerRef = useRef<any>(null);
+  const fileInputMediaRef = useRef<HTMLInputElement>(null);
+  const fileInputDocRef = useRef<HTMLInputElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
 
   const isPeerOnline = presence[chat.id]?.isOnline;
   const peerLastSeen = presence[chat.id]?.lastSeen;
@@ -59,6 +85,16 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
   }, [chatMessages.length, isPeerTyping]);
+
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (attachMenuRef.current && !attachMenuRef.current.contains(e.target as Node)) {
+        setShowAttachMenu(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setInputText(e.target.value);
@@ -96,7 +132,6 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
     const wasViewOnce = isViewOnce;
     setInputText("");
     setReplyingTo(null);
-    setShowEmojiBar(false);
     setIsViewOnce(false);
 
     try {
@@ -121,6 +156,148 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
       }
     } catch (err) {
       console.error("Failed to send message:", err);
+    }
+  };
+
+  // Phase 4 Media Handlers
+  const handleMediaFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setShowAttachMenu(false);
+    if (e.target.files && e.target.files[0]) {
+      setPendingMediaFile(e.target.files[0]);
+      setIsMediaPreviewOpen(true);
+    }
+    e.target.value = "";
+  };
+
+  const handleSendMedia = async (
+    file: File,
+    caption: string,
+    quality: "standard" | "hd",
+    viewOnce: boolean
+  ) => {
+    const transport = getMqttTransport();
+    if (!transport) return;
+
+    const isImage = file.type.startsWith("image/");
+    const isVideo = file.type.startsWith("video/");
+    const msgType = isImage ? "image" : isVideo ? "video" : "document";
+
+    const media = await MediaUploadManager.uploadMedia(file, {
+      quality,
+      mimeType: file.type,
+      fileName: file.name,
+    });
+
+    if (chat.isGroup) {
+      await transport.sendGroupMessage(chat, caption, {
+        messageType: msgType,
+        media,
+        viewOnce,
+      });
+    } else {
+      await transport.sendMessage(
+        { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+        caption,
+        {
+          messageType: msgType,
+          media,
+          viewOnce,
+        }
+      );
+    }
+    setIsMediaPreviewOpen(false);
+    setPendingMediaFile(null);
+  };
+
+  const handleSendVoiceNote = async (
+    audioBlob: Blob,
+    duration: number,
+    waveform: number[]
+  ) => {
+    setIsRecordingVoice(false);
+    const transport = getMqttTransport();
+    if (!transport) return;
+
+    try {
+      const audioFile = new File([audioBlob], `voice-note-${Date.now()}.webm`, {
+        type: "audio/webm",
+      });
+      const media = await MediaUploadManager.uploadMedia(audioFile, {
+        duration,
+        waveform,
+        mimeType: "audio/webm",
+      });
+
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, "", { messageType: "audio", media });
+      } else {
+        await transport.sendMessage(
+          { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+          "",
+          { messageType: "audio", media }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to send voice note:", err);
+    }
+  };
+
+  const handleSelectSticker = async (url: string) => {
+    setShowStickerPicker(false);
+    const transport = getMqttTransport();
+    if (!transport) return;
+    try {
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, url, { messageType: "sticker" });
+      } else {
+        await transport.sendMessage(
+          { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+          url,
+          { messageType: "sticker" }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to send sticker:", err);
+    }
+  };
+
+  const handleSelectGif = async (url: string) => {
+    setShowStickerPicker(false);
+    const transport = getMqttTransport();
+    if (!transport) return;
+    try {
+      if (chat.isGroup) {
+        await transport.sendGroupMessage(chat, url, { messageType: "gif" });
+      } else {
+        await transport.sendMessage(
+          { id: chat.id, phoneNumber: chat.peerPhoneNumber, displayName: chat.peerDisplayName },
+          url,
+          { messageType: "gif" }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to send GIF:", err);
+    }
+  };
+
+  // Drag and Drop & Paste Handlers
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+      setPendingMediaFile(e.dataTransfer.files[0]);
+      setIsMediaPreviewOpen(true);
+    }
+  };
+
+  const handlePaste = (e: React.ClipboardEvent) => {
+    if (e.clipboardData.files && e.clipboardData.files.length > 0) {
+      e.preventDefault();
+      setPendingMediaFile(e.clipboardData.files[0]);
+      setIsMediaPreviewOpen(true);
     }
   };
 
@@ -252,7 +429,28 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
   };
 
   return (
-    <div className="flex-1 h-full flex flex-col bg-[#0b141a] text-[#e9edef] overflow-hidden relative">
+    <div
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+      onPaste={handlePaste}
+      className="flex-1 h-full flex flex-col bg-[#0b141a] text-[#e9edef] overflow-hidden relative"
+    >
+      {/* Hidden File Inputs for Attachments */}
+      <input
+        ref={fileInputMediaRef}
+        type="file"
+        accept="image/*,video/*"
+        onChange={handleMediaFileSelect}
+        className="hidden"
+      />
+      <input
+        ref={fileInputDocRef}
+        type="file"
+        accept="*/*"
+        onChange={handleMediaFileSelect}
+        className="hidden"
+      />
+
       {/* Top Conversation Header */}
       <div className="h-16 px-4 bg-[#202c33] flex items-center justify-between border-b border-[#222e35] select-none z-10">
         <div
@@ -383,6 +581,10 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
             onTogglePin={handleTogglePin}
             onToggleStar={handleToggleStar}
             onOpenViewOnce={handleOpenViewOnce}
+            onOpenMedia={(media) => {
+              setActiveLightboxMedia(media);
+              setIsLightboxOpen(true);
+            }}
           />
         ))}
 
@@ -413,77 +615,130 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
         </div>
       )}
 
-      {/* Quick Emoji Bar */}
-      {showEmojiBar && (
-        <div className="px-4 py-2 bg-[#202c33] border-t border-[#2a3942] flex items-center gap-2 overflow-x-auto">
-          {QUICK_EMOJIS.map((emoji) => (
-            <button
-              key={emoji}
-              onClick={() => setInputText((prev) => prev + emoji)}
-              className="text-lg p-1.5 hover:scale-125 transition"
-            >
-              {emoji}
-            </button>
-          ))}
+      {/* Attachment Options Popover */}
+      {showAttachMenu && (
+        <div
+          ref={attachMenuRef}
+          className="absolute bottom-20 left-12 z-40 bg-[#202c33] border border-[#2a3942] rounded-2xl p-2 shadow-2xl flex flex-col gap-1 w-52 animate-in slide-in-from-bottom-3 duration-150"
+        >
+          <button
+            onClick={() => {
+              setShowAttachMenu(false);
+              fileInputMediaRef.current?.click();
+            }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#374248] transition text-left text-xs font-medium text-[#e9edef]"
+          >
+            <div className="w-8 h-8 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center">
+              <ImageIcon className="w-4 h-4" />
+            </div>
+            <span>Photos & Videos</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setShowAttachMenu(false);
+              fileInputDocRef.current?.click();
+            }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#374248] transition text-left text-xs font-medium text-[#e9edef]"
+          >
+            <div className="w-8 h-8 rounded-full bg-[#3b82f6]/20 text-[#3b82f6] flex items-center justify-center">
+              <FileText className="w-4 h-4" />
+            </div>
+            <span>Document</span>
+          </button>
+
+          <button
+            onClick={() => {
+              setShowAttachMenu(false);
+              setIsRichComposerOpen(true);
+            }}
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-[#374248] transition text-left text-xs font-medium text-[#e9edef]"
+          >
+            <div className="w-8 h-8 rounded-full bg-[#8b5cf6]/20 text-[#8b5cf6] flex items-center justify-center">
+              <Sparkles className="w-4 h-4" />
+            </div>
+            <span>Poll, Location, Contact...</span>
+          </button>
         </div>
       )}
 
       {/* Message Input Bottom Bar */}
-      <form
-        onSubmit={handleSendMessage}
-        className="min-h-[62px] px-4 py-2 bg-[#202c33] flex items-center gap-2 border-t border-[#222e35] select-none"
-      >
-        <button
-          type="button"
-          onClick={() => setShowEmojiBar(!showEmojiBar)}
-          className={`p-2 rounded-full transition ${
-            showEmojiBar ? "text-[#00a884] bg-[#374248]" : "text-[#8696a0] hover:text-white hover:bg-[#374248]"
-          }`}
+      {isRecordingVoice ? (
+        <VoiceNoteRecorder
+          isOpen={isRecordingVoice}
+          onCancel={() => setIsRecordingVoice(false)}
+          onSend={handleSendVoiceNote}
+        />
+      ) : (
+        <form
+          onSubmit={handleSendMessage}
+          className="min-h-[62px] px-4 py-2 bg-[#202c33] flex items-center gap-2 border-t border-[#222e35] select-none"
         >
-          <Smile className="w-5 h-5" />
-        </button>
+          <button
+            type="button"
+            onClick={() => setShowStickerPicker(true)}
+            title="Stickers, Emojis & GIFs"
+            className="p-2 text-[#8696a0] hover:text-white hover:bg-[#374248] rounded-full transition"
+          >
+            <Smile className="w-5 h-5" />
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setIsRichComposerOpen(true)}
-          title="Attach Rich Content (Poll, Location, Contact, Event)"
-          className="p-2 text-[#8696a0] hover:text-white hover:bg-[#374248] rounded-full transition"
-        >
-          <Paperclip className="w-5 h-5" />
-        </button>
+          <button
+            type="button"
+            onClick={() => setShowAttachMenu(!showAttachMenu)}
+            title="Attach Media, Document, or Rich Content"
+            className={`p-2 rounded-full transition ${
+              showAttachMenu
+                ? "text-[#00a884] bg-[#374248]"
+                : "text-[#8696a0] hover:text-white hover:bg-[#374248]"
+            }`}
+          >
+            <Paperclip className="w-5 h-5" />
+          </button>
 
-        <div className="flex-1 relative">
-          <input
-            type="text"
-            value={inputText}
-            onChange={handleInputChange}
-            placeholder={isViewOnce ? "Type a view-once message..." : "Type a message"}
-            className="w-full bg-[#2a3942] text-sm text-white px-4 py-2.5 rounded-xl focus:outline-none placeholder-[#8696a0]"
-          />
-        </div>
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={inputText}
+              onChange={handleInputChange}
+              placeholder={isViewOnce ? "Type a view-once message..." : "Type a message"}
+              className="w-full bg-[#2a3942] text-sm text-white px-4 py-2.5 rounded-xl focus:outline-none placeholder-[#8696a0]"
+            />
+          </div>
 
-        {/* View-Once Toggle */}
-        <button
-          type="button"
-          onClick={() => setIsViewOnce(!isViewOnce)}
-          title={isViewOnce ? "View-once enabled" : "Set message as view-once"}
-          className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-xs transition ${
-            isViewOnce
-              ? "bg-[#00a884]/20 border-[#00a884] text-[#00a884]"
-              : "border-[#8696a0] text-[#8696a0] hover:text-white hover:border-white"
-          }`}
-        >
-          1
-        </button>
+          {/* View-Once Toggle */}
+          <button
+            type="button"
+            onClick={() => setIsViewOnce(!isViewOnce)}
+            title={isViewOnce ? "View-once enabled" : "Set message as view-once"}
+            className={`w-9 h-9 rounded-full border-2 flex items-center justify-center font-bold text-xs transition ${
+              isViewOnce
+                ? "bg-[#00a884]/20 border-[#00a884] text-[#00a884]"
+                : "border-[#8696a0] text-[#8696a0] hover:text-white hover:border-white"
+            }`}
+          >
+            1
+          </button>
 
-        <button
-          type="submit"
-          disabled={!inputText.trim()}
-          className="p-2.5 bg-[#00a884] hover:bg-[#02906f] disabled:opacity-50 disabled:hover:bg-[#00a884] text-white rounded-full transition shadow-md"
-        >
-          <Send className="w-4 h-4" />
-        </button>
-      </form>
+          {inputText.trim() ? (
+            <button
+              type="submit"
+              className="p-2.5 bg-[#00a884] hover:bg-[#02906f] text-white rounded-full transition shadow-md"
+            >
+              <Send className="w-4 h-4" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => setIsRecordingVoice(true)}
+              title="Record Voice Note"
+              className="p-2.5 bg-[#00a884] hover:bg-[#02906f] text-white rounded-full transition shadow-md"
+            >
+              <Mic className="w-4 h-4" />
+            </button>
+          )}
+        </form>
+      )}
 
       {/* Edit Message Modal */}
       {editingMessage && (
@@ -570,6 +825,36 @@ export const ConversationView: React.FC<ConversationViewProps> = ({ chat, onBack
         onSendLocation={handleSendLocation}
         onSendContact={handleSendContact}
         onSendEvent={handleSendEvent}
+      />
+
+      {/* Media Preview Modal */}
+      <MediaPreviewModal
+        file={pendingMediaFile}
+        isOpen={isMediaPreviewOpen}
+        onClose={() => {
+          setIsMediaPreviewOpen(false);
+          setPendingMediaFile(null);
+        }}
+        onSend={handleSendMedia}
+      />
+
+      {/* Media Lightbox */}
+      <MediaLightbox
+        media={activeLightboxMedia}
+        isOpen={isLightboxOpen}
+        onClose={() => {
+          setIsLightboxOpen(false);
+          setActiveLightboxMedia(null);
+        }}
+      />
+
+      {/* Sticker & GIF Picker Modal */}
+      <StickerGifPicker
+        isOpen={showStickerPicker}
+        onClose={() => setShowStickerPicker(false)}
+        onSelectEmoji={(emoji) => setInputText((prev) => prev + emoji)}
+        onSelectSticker={handleSelectSticker}
+        onSelectGif={handleSelectGif}
       />
     </div>
   );

@@ -10,6 +10,7 @@ from .routes import (
     groups_router,
     health_router,
     keys_router,
+    media_router,
     presence_router,
     push_router,
     users_router,
@@ -51,6 +52,7 @@ app.include_router(auth_router)
 app.include_router(users_router)
 app.include_router(keys_router)
 app.include_router(groups_router)
+app.include_router(media_router)
 app.include_router(presence_router)
 app.include_router(push_router)
 

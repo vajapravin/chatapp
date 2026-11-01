@@ -32,6 +32,22 @@ export interface EventData {
   location?: string;
 }
 
+export interface MediaAttachment {
+  url: string;
+  mimeType: string;
+  fileName: string;
+  fileSize: number;
+  cipherKey: string; // Base64
+  iv: string; // Base64
+  sha256: string; // Hex
+  thumbnail?: string; // Base64 data URL
+  duration?: number; // Voice/video duration in seconds
+  waveform?: number[]; // Audio waveform 32 bars
+  width?: number;
+  height?: number;
+  quality?: "standard" | "hd";
+}
+
 export interface ChatItem {
   id: string; // peer user id OR group id
   peerUserId: string; // peer user ID or group creator ID
@@ -72,7 +88,8 @@ export interface MessageItem {
   isDeleted?: boolean;
 
   // Rich message payload fields
-  messageType?: "text" | "poll" | "location" | "contact" | "event" | "view_once";
+  messageType?: "text" | "poll" | "location" | "contact" | "event" | "view_once" | "image" | "video" | "audio" | "document" | "sticker" | "gif";
+  media?: MediaAttachment;
   poll?: PollData;
   location?: LocationData;
   contact?: ContactData;
@@ -101,7 +118,7 @@ class LocalDB {
 
   private openDB(): Promise<IDBDatabase> {
     return new Promise((resolve, reject) => {
-      const request = indexedDB.open("chatapp_local_v2", 1);
+      const request = indexedDB.open("chatapp_local_v2", 2);
       request.onupgradeneeded = () => {
         const db = request.result;
         if (!db.objectStoreNames.contains("chats")) {
@@ -113,9 +130,75 @@ class LocalDB {
           msgStore.createIndex("timestamp", "timestamp", { unique: false });
           msgStore.createIndex("isStarred", "isStarred", { unique: false });
         }
+        if (!db.objectStoreNames.contains("media_cache")) {
+          db.createObjectStore("media_cache", { keyPath: "key" });
+        }
+        if (!db.objectStoreNames.contains("media_uploads")) {
+          db.createObjectStore("media_uploads", { keyPath: "id" });
+        }
       };
       request.onsuccess = () => resolve(request.result);
       request.onerror = () => reject(request.error);
+    });
+  }
+
+  async cacheMedia(key: string, blob: Blob): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("media_cache", "readwrite");
+      const store = tx.objectStore("media_cache");
+      store.put({ key, blob, timestamp: Date.now() });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async getCachedMedia(key: string): Promise<Blob | null> {
+    if (!this.dbPromise) return null;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("media_cache", "readonly");
+      const store = tx.objectStore("media_cache");
+      const req = store.get(key);
+      req.onsuccess = () => resolve(req.result ? req.result.blob : null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  async saveUploadSession(session: any): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("media_uploads", "readwrite");
+      const store = tx.objectStore("media_uploads");
+      store.put(session);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+    });
+  }
+
+  async getUploadSession(id: string): Promise<any> {
+    if (!this.dbPromise) return null;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("media_uploads", "readonly");
+      const store = tx.objectStore("media_uploads");
+      const req = store.get(id);
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    });
+  }
+
+  async deleteUploadSession(id: string): Promise<void> {
+    if (!this.dbPromise) return;
+    const db = await this.dbPromise;
+    return new Promise((resolve) => {
+      const tx = db.transaction("media_uploads", "readwrite");
+      const store = tx.objectStore("media_uploads");
+      store.delete(id);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
     });
   }
 

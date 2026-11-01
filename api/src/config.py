@@ -32,6 +32,14 @@ class Settings(BaseSettings):
     SMTP_USE_TLS: bool = False
     SMTP_STARTTLS: bool = True
 
+    # S3 Object Storage (MinIO / AWS S3)
+    S3_ENDPOINT: str = ""
+    S3_ACCESS_KEY: str = ""
+    S3_SECRET_KEY: str = ""
+    S3_BUCKET: str = "chatapp-media"
+    MEDIA_STORAGE_DIR: str = "./data/media"
+    MAX_MEDIA_SIZE_BYTES: int = 2 * 1024 * 1024 * 1024  # 2 GB
+
     # CORS
     CORS_ORIGINS: list[str] = [
         "http://localhost:5174",

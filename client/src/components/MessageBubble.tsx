@@ -9,18 +9,24 @@ import {
   Clock,
   CornerUpLeft,
   CornerUpRight,
+  Download,
   Edit2,
   ExternalLink,
   Eye,
+  FileText,
   MapPin,
   Pin,
+  Play,
   Smile,
   Star,
   Trash2,
   User as UserIcon,
 } from "lucide-react";
-import { MessageItem } from "../storage/db";
+import { MediaAttachment, MessageItem } from "../storage/db";
 import { useAuthStore } from "../store/authStore";
+import { AudioPlayerBubble } from "./AudioPlayerBubble";
+import { MediaDownloadManager } from "../media/MediaDownloadManager";
+import { formatFileSize } from "../media/ThumbnailGenerator";
 
 interface MessageBubbleProps {
   message: MessageItem;
@@ -33,6 +39,7 @@ interface MessageBubbleProps {
   onTogglePin?: (msgId: string) => void;
   onToggleStar?: (msgId: string) => void;
   onOpenViewOnce?: (msgId: string) => void;
+  onOpenMedia?: (media: MediaAttachment) => void;
 }
 
 const EMOJI_OPTIONS = ["❤️", "👍", "😂", "😮", "😢", "🙏"];
@@ -48,15 +55,29 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   onTogglePin,
   onToggleStar,
   onOpenViewOnce,
+  onOpenMedia,
 }) => {
   const currentUserId = useAuthStore((s) => s.userId) || "";
   const [showReactions, setShowReactions] = useState(false);
   const [showViewOnceModal, setShowViewOnceModal] = useState(false);
+  const [viewOnceMediaUrl, setViewOnceMediaUrl] = useState<string | null>(null);
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (message.media && !message.viewOnce) {
+      if (message.messageType === "image" || message.messageType === "video") {
+        MediaDownloadManager.getDecryptedMediaUrl(message.media)
+          .then(setImageSrc)
+          .catch(() => {});
+      }
+    }
+  }, [message.media, message.viewOnce, message.messageType]);
 
   const isEditable =
     isOutgoing &&
     !message.isDeleted &&
     !message.poll &&
+    !message.media &&
     !message.viewOnce &&
     Date.now() - message.timestamp < 15 * 60 * 1000;
 
@@ -67,8 +88,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     ? message.poll.options.reduce((acc, opt) => acc + opt.votes.length, 0)
     : 0;
 
-  const handleOpenViewOnce = () => {
+  const handleOpenViewOnce = async () => {
     if (message.viewed) return;
+    if (message.media) {
+      try {
+        const url = await MediaDownloadManager.getDecryptedMediaUrl(message.media);
+        setViewOnceMediaUrl(url);
+      } catch (err) {
+        console.error("Failed to decrypt view-once media:", err);
+      }
+    }
     setShowViewOnceModal(true);
     if (onOpenViewOnce) onOpenViewOnce(message.id);
   };
@@ -257,17 +286,127 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </button>
         ) : null}
 
-        {/* Standard Text Message */}
-        {!message.poll && !message.location && !message.contact && !message.event && !message.viewOnce && (
-          <p
-            className={`break-words whitespace-pre-wrap select-text pr-2 ${
-              message.isDeleted ? "italic text-[#8696a0] flex items-center gap-1.5" : ""
-            }`}
-          >
-            {message.isDeleted && <Ban className="w-3.5 h-3.5 text-[#8696a0]" />}
-            {message.text}
-          </p>
+        {/* 6. Audio / Voice Note Message */}
+        {message.messageType === "audio" && message.media && !message.viewOnce ? (
+          <AudioPlayerBubble media={message.media} isOutgoing={isOutgoing} />
+        ) : null}
+
+        {/* 7. Image Message */}
+        {message.messageType === "image" && message.media && !message.viewOnce ? (
+          <div className="flex flex-col gap-1.5 max-w-sm">
+            <div
+              onClick={() => onOpenMedia && onOpenMedia(message.media!)}
+              className="relative rounded-xl overflow-hidden cursor-pointer group/img bg-[#111b21] max-h-80 flex items-center justify-center"
+            >
+              <img
+                src={imageSrc || message.media.thumbnail || message.media.url}
+                alt={message.media.fileName}
+                className="w-full h-full object-cover transition-transform duration-200 group-hover/img:scale-[1.02]"
+              />
+              {!imageSrc && !message.media.thumbnail && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+                  <div className="w-6 h-6 border-2 border-[#00a884] border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+            {message.text && (
+              <p className="text-sm text-[#e9edef] px-0.5 whitespace-pre-wrap break-words">{message.text}</p>
+            )}
+          </div>
+        ) : null}
+
+        {/* 8. Video Message */}
+        {message.messageType === "video" && message.media && !message.viewOnce ? (
+          <div className="flex flex-col gap-1.5 max-w-sm">
+            <div
+              onClick={() => onOpenMedia && onOpenMedia(message.media!)}
+              className="relative rounded-xl overflow-hidden cursor-pointer group/vid bg-[#111b21] aspect-video flex items-center justify-center"
+            >
+              <img
+                src={imageSrc || message.media.thumbnail || ""}
+                alt="Video thumbnail"
+                className="w-full h-full object-cover"
+              />
+              <div className="absolute inset-0 bg-black/30 flex items-center justify-center group-hover/vid:bg-black/20 transition">
+                <div className="w-12 h-12 rounded-full bg-black/60 text-white flex items-center justify-center shadow-lg group-hover/vid:scale-110 transition">
+                  <Play className="w-6 h-6 fill-white ml-0.5" />
+                </div>
+              </div>
+              {message.media.duration && (
+                <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-black/70 text-[10px] text-white font-mono">
+                  {Math.round(message.media.duration)}s
+                </span>
+              )}
+            </div>
+            {message.text && (
+              <p className="text-sm text-[#e9edef] px-0.5 whitespace-pre-wrap break-words">{message.text}</p>
+            )}
+          </div>
+        ) : null}
+
+        {/* 9. Document Message */}
+        {message.messageType === "document" && message.media && !message.viewOnce ? (
+          <div className="flex items-center gap-3 p-2 bg-[#111b21]/50 rounded-xl border border-[#2a3942]/60 min-w-[220px] max-w-xs">
+            <div className="w-10 h-10 rounded-xl bg-[#00a884]/20 text-[#00a884] flex items-center justify-center flex-shrink-0">
+              <FileText className="w-6 h-6" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-[#e9edef] truncate">{message.media.fileName}</p>
+              <p className="text-[10px] text-[#8696a0]">{formatFileSize(message.media.fileSize)}</p>
+            </div>
+            <button
+              onClick={() => MediaDownloadManager.triggerDownload(message.media!)}
+              title="Download Document"
+              className="p-2 text-[#8696a0] hover:text-[#00a884] hover:bg-[#202c33] rounded-full transition flex-shrink-0"
+            >
+              <Download className="w-4 h-4" />
+            </button>
+          </div>
+        ) : null}
+
+        {/* 10. Sticker Message */}
+        {message.messageType === "sticker" && (
+          <div className="p-1">
+            <img
+              src={message.media?.url || message.text}
+              alt="Sticker"
+              className="w-32 h-32 object-contain"
+            />
+          </div>
         )}
+
+        {/* 11. GIF Message */}
+        {message.messageType === "gif" && (
+          <div className="relative rounded-xl overflow-hidden max-w-xs">
+            <img
+              src={message.media?.url || message.text}
+              alt="GIF"
+              className="w-full h-auto rounded-xl"
+            />
+            <span className="absolute bottom-2 left-2 px-1.5 py-0.5 rounded bg-black/60 text-[10px] font-bold text-white tracking-wider">
+              GIF
+            </span>
+          </div>
+        )}
+
+        {/* Standard Text Message */}
+        {!message.poll &&
+          !message.location &&
+          !message.contact &&
+          !message.event &&
+          !message.viewOnce &&
+          !message.media &&
+          message.messageType !== "sticker" &&
+          message.messageType !== "gif" && (
+            <p
+              className={`break-words whitespace-pre-wrap select-text pr-2 ${
+                message.isDeleted ? "italic text-[#8696a0] flex items-center gap-1.5" : ""
+              }`}
+            >
+              {message.isDeleted && <Ban className="w-3.5 h-3.5 text-[#8696a0]" />}
+              {message.text}
+            </p>
+          )}
 
         {/* Metadata Footer: Time, ticks, star, pin */}
         <div className="flex items-center justify-end gap-1.5 mt-1 -mb-1 text-[11px] text-[#8696a0] select-none">
@@ -368,15 +507,39 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             <div className="w-12 h-12 rounded-full bg-[#00a884]/20 text-[#00a884] flex items-center justify-center mx-auto">
               <Eye className="w-6 h-6" />
             </div>
-            <h3 className="font-semibold text-base text-[#e9edef]">View-Once Message</h3>
-            <p className="text-sm text-[#d1d7db] p-4 bg-[#202c33] rounded-xl select-none">
-              {message.text}
-            </p>
+            <h3 className="font-semibold text-base text-[#e9edef]">View-Once Content</h3>
+
+            {message.media && viewOnceMediaUrl ? (
+              message.media.mimeType.startsWith("video/") ? (
+                <video
+                  src={viewOnceMediaUrl}
+                  controls
+                  autoPlay
+                  className="max-h-60 mx-auto rounded-xl shadow-lg"
+                />
+              ) : (
+                <img
+                  src={viewOnceMediaUrl}
+                  alt="View once"
+                  className="max-h-60 mx-auto rounded-xl object-contain shadow-lg"
+                />
+              )
+            ) : null}
+
+            {message.text && (
+              <p className="text-sm text-[#d1d7db] p-3 bg-[#202c33] rounded-xl select-none">
+                {message.text}
+              </p>
+            )}
+
             <p className="text-[11px] text-[#8696a0]">
-              This message will disappear once you close this window.
+              This content will disappear once you close this window.
             </p>
             <button
-              onClick={() => setShowViewOnceModal(false)}
+              onClick={() => {
+                setShowViewOnceModal(false);
+                setViewOnceMediaUrl(null);
+              }}
               className="w-full bg-[#00a884] text-[#111b21] font-semibold py-2 rounded-xl text-xs hover:bg-[#00a884]/90 transition"
             >
               Close and Mark Opened
