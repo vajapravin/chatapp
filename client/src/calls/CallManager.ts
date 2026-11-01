@@ -8,7 +8,7 @@ import { getMqttTransport } from "../transport/mqttClient";
 import { ringtoneSynth } from "./RingtoneSynthesizer";
 import { WebRtcPeer } from "./WebRtcPeer";
 
-const API_BASE = "http://localhost:8001";
+const API_BASE = (import.meta as any).env?.VITE_API_BASE || "";
 
 export interface CallSignalPayload {
   type: "call_signal";

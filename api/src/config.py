@@ -60,6 +60,7 @@ class Settings(BaseSettings):
         "http://localhost:5174",
         "http://localhost:3001",
         "https://chat.vajapravin.me",
+        "https://chatapp.vajapravin.me",
     ]
 
     model_config = SettingsConfigDict(
